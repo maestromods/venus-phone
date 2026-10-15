@@ -15,7 +15,9 @@ Unofficial fan project. Not made by or affiliated with Venus Dev. No game files,
 
 1. Download or clone this repo.
 2. Double-click `start.cmd`. The first run installs dependencies and asks you to choose a PIN (6+ digits or an 8+ character passphrase).
-3. **On the PC**, open `http://localhost:8790`, unlock, and add your API key in Settings. Keys can only be entered on the PC, because the phone connection is plain HTTP.
+3. **On the PC**, open exactly `http://localhost:8790`, unlock, and add your API key in Settings, then press **Save settings**. Keys can only be entered this way, because the phone connection is plain HTTP.
+   - It has to be `localhost`. Opening the PC's `http://192.168.x.x:8790` address in the PC's own browser counts as another device, and the key fields stay locked.
+   - Until a key is saved for the AI service you picked, Settings keeps reopening when you go back.
 4. **On your phone** (same Wi-Fi), open one of the `http://192.168.x.x:8790` addresses it prints. Skip any marked as a virtual adapter. Unlock with your PIN, then:
    - **Pick your game folder.** Browse to the folder with `Venus University.exe`, or paste its path. Its `data` or `saves` folder works too.
    - **Pick a save** to text from.
