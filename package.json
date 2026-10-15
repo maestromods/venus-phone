@@ -1,0 +1,20 @@
+{
+  "name": "venus-phone",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LAN-only phone companion for Venus University: text the girls from your save and sync the chats back into the game.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "npm run build && node dist/server.js"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.7.2"
+  }
+}

@@ -1,0 +1,23 @@
+node_modules/
+dist/
+
+# Per-user data: PIN hash, DPAPI-encrypted API keys, unsynced chats, uploaded photos.
+app-data/
+
+# Local editor/agent tooling, not part of the app.
+.kiro/
+skills-lock.json
+
+# Scratch files
+*.log
+*.partial
+
+# Local secrets, certificates, and backups.
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+*.enc
+*.bak
