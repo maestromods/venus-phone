@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Bunnyboard">
+  <rect width="96" height="96" rx="22" fill="#ff5fa2"/>
+  <ellipse cx="36" cy="26" rx="8" ry="20" fill="#fff"/>
+  <ellipse cx="60" cy="26" rx="8" ry="20" fill="#fff"/>
+  <path d="M20 50c0-9 7-14 14-14h28c7 0 14 5 14 14v12c0 9-7 14-14 14H44l-12 9v-9c-7-1-12-6-12-14z" fill="#fff"/>
+  <circle cx="38" cy="56" r="4" fill="#ff5fa2"/>
+  <circle cx="58" cy="56" r="4" fill="#ff5fa2"/>
+</svg>

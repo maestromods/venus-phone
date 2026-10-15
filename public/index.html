@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#1b1430">
+  <meta name="referrer" content="no-referrer">
+  <title>Bunnyboard</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css?v=10">
+</head>
+<body>
+  <div id="app" class="app">
+    <!-- Lock -->
+    <section id="view-lock" class="view" hidden aria-labelledby="lock-title">
+      <div class="center">
+        <img src="/icon.svg" alt="" class="logo" width="72" height="72">
+        <h1 id="lock-title">Bunnyboard</h1>
+        <form id="lock-form" class="stack" autocomplete="off">
+          <label for="pin">PIN</label>
+          <input id="pin" name="pin" type="password" maxlength="64" autocomplete="current-password" required autofocus>
+          <button type="submit" class="primary">Unlock</button>
+          <p id="lock-error" class="error" role="alert"></p>
+        </form>
+      </div>
+    </section>
+
+    <!-- Game folder picker -->
+    <section id="view-folder" class="view" hidden aria-labelledby="folder-title">
+      <header class="bar">
+        <h1 id="folder-title">Find your game folder</h1>
+      </header>
+      <p class="hint">Pick the Venus University folder on your PC (the one with <code>Venus University.exe</code>). Its <code>data</code> or <code>saves</code> folder works too.</p>
+      <div class="pad stack">
+        <div id="folder-path" class="muted" aria-live="polite"></div>
+        <button type="button" id="folder-use" class="primary" hidden>Use this folder</button>
+        <p id="folder-error" class="error" role="alert"></p>
+        <form id="folder-type" class="stack">
+          <label for="folder-input">Or paste the folder path</label>
+          <input id="folder-input" autocomplete="off" spellcheck="false" placeholder="C:\Games\Venus University">
+          <button type="submit">Use this path</button>
+        </form>
+      </div>
+      <ul id="folder-list" class="list" aria-label="Folders"></ul>
+    </section>
+
+    <!-- Save picker -->
+    <section id="view-pick" class="view" hidden aria-labelledby="pick-title">
+      <header class="bar">
+        <h1 id="pick-title">Choose a save</h1>
+        <button type="button" class="icon-btn" data-go="settings" aria-label="Settings">⚙</button>
+      </header>
+      <p class="hint">Chats attach to the save you pick. Syncing writes a new save in the same playthrough, so this one is never changed.</p>
+      <div id="pick-list" class="list" aria-live="polite"></div>
+    </section>
+
+    <!-- Contacts -->
+    <section id="view-contacts" class="view" hidden aria-labelledby="contacts-title">
+      <header class="bar">
+        <h1 id="contacts-title">Chats</h1>
+        <button type="button" class="icon-btn" data-go="settings" aria-label="Settings">⚙</button>
+      </header>
+      <div class="session-strip">
+        <div>
+          <div id="session-player" class="strong"></div>
+          <div id="session-now" class="muted"></div>
+        </div>
+        <button type="button" id="sync-btn" class="primary small">Sync</button>
+      </div>
+      <p id="sync-status" class="status" role="status" aria-live="polite"></p>
+      <ul id="contact-list" class="list contacts" aria-label="Contacts"></ul>
+      <p id="contacts-empty" class="hint" hidden>Nobody in this save has given you her number yet.</p>
+    </section>
+
+    <!-- Thread -->
+    <section id="view-thread" class="view thread" hidden aria-labelledby="thread-title">
+      <header class="bar">
+        <button type="button" class="icon-btn" data-go="contacts" aria-label="Back to chats">‹</button>
+        <img id="thread-avatar" class="avatar" alt="" width="36" height="36">
+        <h1 id="thread-title"></h1>
+        <button type="button" id="incoming-btn" class="icon-btn" aria-label="Texting settings for this chat" aria-expanded="false" aria-controls="incoming-panel">⏱</button>
+      </header>
+      <form id="incoming-panel" class="incoming-panel" hidden>
+        <div class="stack">
+          <label for="incoming-every">She texts you first</label>
+          <select id="incoming-every">
+            <option value="0">Off</option>
+            <option value="5">About every 5 minutes</option>
+            <option value="15">About every 15 minutes</option>
+            <option value="30">About every 30 minutes</option>
+            <option value="60">About every hour</option>
+            <option value="120">About every 2 hours</option>
+            <option value="240">About every 4 hours</option>
+            <option value="480">About every 8 hours</option>
+            <option value="-1">Random (5 minutes to 4 hours)</option>
+          </select>
+        </div>
+        <div class="stack">
+          <label for="incoming-max">Texts in a row before you reply</label>
+          <select id="incoming-max">
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+            <option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option>
+          </select>
+        </div>
+        <p class="muted">Just for this chat. Nobody texts first between 11pm and 8am.</p>
+      </form>
+      <ol id="messages" class="messages" role="log" aria-live="polite" aria-label="Messages"></ol>
+      <div id="typing" class="typing" hidden aria-hidden="true"><span></span><span></span><span></span></div>
+      <p id="thread-error" class="error pad" role="alert"></p>
+      <div id="attach-preview" class="attach-preview" hidden>
+        <img id="attach-img" alt="Photo to send">
+        <button type="button" id="attach-clear" class="small">Remove photo</button>
+      </div>
+      <form id="composer" class="composer">
+        <input type="file" id="attach-input" accept="image/*" class="sr-only" tabindex="-1">
+        <button type="button" id="attach-btn" class="icon-btn attach" aria-label="Attach a photo">📷</button>
+        <label for="draft" class="sr-only">Message</label>
+        <textarea id="draft" rows="1" maxlength="2000" placeholder="Message" enterkeyhint="send"></textarea>
+        <button type="submit" class="primary send" aria-label="Send">➤</button>
+      </form>
+    </section>
+
+    <!-- Settings -->
+    <section id="view-settings" class="view" hidden aria-labelledby="settings-title">
+      <header class="bar">
+        <button type="button" class="icon-btn" id="settings-back" aria-label="Back">‹</button>
+        <h1 id="settings-title">Settings</h1>
+      </header>
+      <form id="appearance-form" class="stack pad" aria-describedby="appearance-note">
+        <h2>Appearance</h2>
+        <label for="theme">Theme</label>
+        <select id="theme" name="theme">
+          <option value="system">Match my device (dark or light)</option>
+          <option value="bunnyboard">Bunnyboard (dark purple)</option>
+          <option value="midnight">Midnight (dark grey)</option>
+          <option value="oled">OLED (true black)</option>
+          <option value="light">Light</option>
+        </select>
+        <fieldset>
+          <legend>Accent colour</legend>
+          <div class="swatches">
+            <label class="swatch" data-c="pink"><input type="radio" name="accent" value="pink" aria-label="Pink"><span></span></label>
+            <label class="swatch" data-c="purple"><input type="radio" name="accent" value="purple" aria-label="Purple"><span></span></label>
+            <label class="swatch" data-c="blue"><input type="radio" name="accent" value="blue" aria-label="Blue"><span></span></label>
+            <label class="swatch" data-c="teal"><input type="radio" name="accent" value="teal" aria-label="Teal"><span></span></label>
+            <label class="swatch" data-c="green"><input type="radio" name="accent" value="green" aria-label="Green"><span></span></label>
+            <label class="swatch" data-c="orange"><input type="radio" name="accent" value="orange" aria-label="Orange"><span></span></label>
+            <label class="swatch" data-c="red"><input type="radio" name="accent" value="red" aria-label="Red"><span></span></label>
+          </div>
+        </fieldset>
+        <label for="desk-bg">Desktop background (the space around the chat on wide screens)</label>
+        <select id="desk-bg" name="deskBg">
+          <option value="none">Same as the theme</option>
+          <option value="sunset">Sunset</option>
+          <option value="ocean">Ocean</option>
+          <option value="aurora">Aurora</option>
+          <option value="rose">Rose</option>
+          <option value="graphite">Graphite</option>
+          <option value="image">My own picture</option>
+        </select>
+        <div id="desk-image-row" class="row" hidden>
+          <input type="file" id="desk-image" accept="image/*" class="sr-only" tabindex="-1">
+          <button type="button" id="desk-image-btn">Choose a picture…</button>
+          <span id="desk-image-status" class="muted" aria-live="polite"></span>
+        </div>
+        <p id="appearance-note" class="muted">Saved on this device only, so your phone and PC can look different.</p>
+      </form>
+
+      <form id="settings-form" class="stack pad">
+        <fieldset>
+          <legend>AI service</legend>
+          <label class="row"><input type="radio" name="provider" value="gemini"> Gemini</label>
+          <label class="row"><input type="radio" name="provider" value="openrouter"> OpenRouter</label>
+        </fieldset>
+
+        <div data-for="gemini" class="stack">
+          <label for="geminiModel">Gemini model</label>
+          <input id="geminiModel" name="geminiModel" list="gemini-models" autocomplete="off">
+          <datalist id="gemini-models">
+            <option value="gemini-3.8-flash"></option>
+            <option value="gemini-3.7-flash"></option>
+            <option value="gemini-3.6-flash"></option>
+            <option value="gemini-3.5-flash"></option>
+            <option value="gemini-3.5-flash-lite"></option>
+          </datalist>
+          <label for="geminiKey">Gemini API key</label>
+          <input id="geminiKey" name="geminiKey" type="password" autocomplete="off" spellcheck="false">
+          <label class="row"><input type="checkbox" name="clearGeminiKey"> Remove saved Gemini key</label>
+        </div>
+
+        <div data-for="openrouter" class="stack">
+          <label for="openrouterModel">OpenRouter model</label>
+          <input id="openrouterModel" name="openrouterModel" autocomplete="off" spellcheck="false">
+          <label for="openrouterVisionModel">Model for messages with your photos (must support images; blank = same as above)</label>
+          <input id="openrouterVisionModel" name="openrouterVisionModel" autocomplete="off" spellcheck="false">
+          <label for="endpointUrl">Endpoint URL</label>
+          <input id="endpointUrl" name="endpointUrl" type="url" autocomplete="off" spellcheck="false">
+          <label for="openrouterKey">OpenRouter API key</label>
+          <input id="openrouterKey" name="openrouterKey" type="password" autocomplete="off" spellcheck="false">
+          <label class="row"><input type="checkbox" name="clearOpenrouterKey"> Remove saved OpenRouter key</label>
+        </div>
+
+        <label for="thinking">Thinking</label>
+        <select id="thinking" name="thinking">
+          <option value="minimal">Minimal (Gemini 3.5–3.6 only)</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+
+        <fieldset>
+          <legend>Photos</legend>
+          <label class="row"><input type="checkbox" name="photos"> Girls can send photos (needs the game's ComfyUI)</label>
+          <label class="row"><input type="checkbox" name="explicitPhotos"> Allow undressed photos</label>
+        </fieldset>
+
+        <label for="gameDir">Game folder</label>
+        <input id="gameDir" name="gameDir" autocomplete="off" spellcheck="false" readonly>
+        <button type="button" id="change-folder">Choose a different game folder</button>
+
+        <button type="submit" class="primary">Save settings</button>
+        <p id="settings-status" class="status" role="status" aria-live="polite"></p>
+      </form>
+
+      <form id="pin-form" class="stack pad" autocomplete="off">
+        <h2>Change PIN</h2>
+        <label for="pin-current">Current PIN</label>
+        <input id="pin-current" type="password" maxlength="64" autocomplete="current-password" required>
+        <label for="pin-next">New PIN (6+ digits, or a passphrase of 8+ characters)</label>
+        <input id="pin-next" type="password" minlength="6" maxlength="64" autocomplete="new-password" required>
+        <button type="submit">Change PIN</button>
+        <p id="pin-status" class="status" role="status" aria-live="polite"></p>
+      </form>
+
+      <div class="stack pad">
+        <button type="button" id="change-save">Choose a different save</button>
+        <button type="button" id="logout">Lock</button>
+      </div>
+    </section>
+  </div>
+  <div id="toast" class="toast" hidden role="status" aria-live="polite">
+    <button type="button" id="toast-open" class="toast-btn"></button>
+  </div>
+  <script src="/app.js?v=9" type="module"></script>
+</body>
+</html>

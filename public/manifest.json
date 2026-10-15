@@ -1,0 +1,9 @@
+{
+  "name": "Bunnyboard",
+  "short_name": "Bunnyboard",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1b1430",
+  "theme_color": "#1b1430",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
