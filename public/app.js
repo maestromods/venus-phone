@@ -700,7 +700,9 @@ async function openSettings() {
     input.disabled = remoteHttp;
     if (remoteHttp) input.placeholder = `${input.placeholder} · enter keys on the PC`;
   }
-  $("settings-status").textContent = remoteHttp ? `To add or change an API key, open http://localhost:${location.port || 80} on the PC.` : "";
+  $("settings-status").textContent = remoteHttp
+    ? `API keys can only be entered at http://localhost:${location.port || 80}, typed exactly like that in a browser on the PC running the app. This page is open at ${location.hostname}, which counts as another device even on that PC.`
+    : "";
   syncProviderFields();
 }
 
