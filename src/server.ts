@@ -120,7 +120,8 @@ async function main(): Promise<void> {
   } else {
     console.log("\nOn your phone (same Wi-Fi), open:");
     for (const address of lanAddresses()) console.log(`  http://${address.ip}:${config.port}${address.note}`);
-    console.log("\nNote: the connection is plain HTTP, so use Wi-Fi you trust. Enter API keys on this PC.");
+    console.log("\nNote: the connection is plain HTTP, so use Wi-Fi you trust.");
+    console.log(`Enter your API key on this PC at http://localhost:${config.port} (exactly "localhost"; the 192.168 address won't unlock the key fields).`);
     console.log('For an encrypted connection, set "https": true in app-data/config.json and restart.');
   }
   console.log(`\nOn this PC: http://localhost:${config.port}`);
