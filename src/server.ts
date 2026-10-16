@@ -306,10 +306,15 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
       return sendJson(res, 200, { notices: phone.noticesSince(since), unread: phone.unreadTotal(), now: Date.now() });
     }
 
-    const chat = /^\/api\/chats\/([A-Za-z0-9-]{1,64})(\/send|\/incoming|\/delete|\/regenerate)?$/.exec(url.pathname);
+    const chat = /^\/api\/chats\/([A-Za-z0-9-]{1,64})(\/send|\/incoming|\/delete|\/regenerate|\/unblock)?$/.exec(url.pathname);
     if (chat?.[1]) {
       const charId = chat[1];
       const pt = phone.playthroughId();
+      if (method === "POST" && chat[2] === "/unblock") {
+        await readJson(req);
+        const thread = await phone.unblock(charId, await llmSettings(false));
+        return sendJson(res, 200, { ...thread, incoming: pt ? incomingSetting(pt, charId) : null });
+      }
       if (method === "POST" && (chat[2] === "/delete" || chat[2] === "/regenerate")) {
         const body = await readJson(req);
         if (typeof body.id !== "string" || !body.id || body.id.length > 200) return sendJson(res, 400, { error: "Choose a message." });

@@ -76,5 +76,7 @@ The last bubble of the latest reply has **Regenerate reply**. It replaces that e
 
 Editing clears the running chat recap to avoid carrying removed messages into future prompts. Future replies still use the surviving recent messages and the character's game memories, but details held only in the old recap will be forgotten.
 
-Run `npm test` to build and check deletion, regeneration, blocking, persistence and edit guards with a mocked AI provider.
+Hidden unblock gesture: open a blocked contact's chat and click or tap her profile picture in the header **three times within three seconds**. She sends an in-character message deciding to reopen contact, then you can text again. The gesture does nothing for an unblocked contact. A failed AI request leaves her blocked so you can retry. The unblock survives restarts and carries into the next synced game save; it does not erase history or prevent a later block.
+
+Run `npm test` to build and check deletion, regeneration, blocking/unblocking, persistence, profile gestures and edit guards with a mocked AI provider.
 

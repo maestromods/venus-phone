@@ -102,6 +102,82 @@ test('message lifecycle', async (t) => {
       await assert.rejects(p.deleteMessage('girl', 'a'), /Wait/);
       await assert.rejects(p.choose('1', '2', true), /Wait/);
     });
+    await t.test('unblocking an inherited block persists and merges onto a newer game save', async () => {
+      const p = phone();
+      p.base.charInfo.girl.flags.blocked = true;
+      const originalPlayerIds = p.thread('girl').messages.filter(m => m.sender === 'player').map(m => m.id);
+      respond({ messages: ['I unblocked you.', 'We can try talking again.'], summary: 'Girl reopened contact.', blocked: false });
+      const result = await p.unblock('girl', settings);
+      assert.equal(result.blocked, false);
+      assert.equal(result.busy, false);
+      assert.equal(result.messages.at(-1).text, 'I unblocked you. We can try talking again.');
+      assert.equal(result.messages.at(-2).text, 'Girl unblocked you.');
+      assert.deepEqual(result.messages.filter(m => m.sender === 'player').map(m => m.id), originalPlayerIds);
+      assert.match(request.messages.at(-1).content, /She has decided to unblock the reader/);
+      assert.match(request.messages.at(-1).content, /The reader has not sent a new message/);
+      const newer = structuredClone(p.base);
+      newer.stats.brain = 9;
+      const merged = applyDelta(newer, p.state.delta, true);
+      assert.equal(merged.charInfo.girl.flags.blocked, false);
+      assert.equal(merged.charInfo.girl.flags.gaveContactInfo, true);
+      assert.equal(merged.stats.brain, 9);
+      assert.equal(merged.bunnyboard.conversations.girl.summary, 'Girl reopened contact.');
+      const restored = new Phone({
+        readSave: async () => structuredClone(p.base), readRecord: async () => p.record,
+        readCharacter: async id => p.characters.get(id),
+      });
+      await restored.restore();
+      assert.equal(restored.thread('girl').blocked, false);
+      assert.equal(restored.thread('girl').messages.at(-1).text, result.messages.at(-1).text);
+      await restored.deleteMessage('girl', result.messages.at(-1).id);
+      assert.equal(restored.thread('girl').blocked, false);
+    });
+    await t.test('phone block, unblock, and later block use the latest explicit decision', async () => {
+      const p = phone();
+      p.state.delta.blocked.push('girl');
+      respond({ messages: ['I unblocked you.'], summary: 'Reopened contact.', blocked: false });
+      await p.unblock('girl', settings);
+      assert.deepEqual(p.state.delta.blocked, []);
+      assert.equal(p.thread('girl').blocked, false);
+      await assert.rejects(p.unblock('girl', settings), /hasn't blocked/);
+      respond({ messages: ['That is enough.'], summary: 'Blocked again.', blocked: true });
+      await p.send('girl', 'Hello again', settings, { enabled: false, explicit: false });
+      assert.equal(p.thread('girl').blocked, true);
+      assert.deepEqual(p.state.delta.unblocked, []);
+      assert.equal(applyDelta(base, p.state.delta, true).charInfo.girl.flags.blocked, true);
+    });
+    await t.test('failed, empty, or contradictory unblock replies leave the block and history intact', async () => {
+      const p = phone();
+      p.state.delta.blocked.push('girl');
+      const before = structuredClone(p.state);
+      for (const reply of [null, { messages: [], blocked: false }, { messages: ['No.'], blocked: true }]) {
+        if (reply === null) globalThis.fetch = async () => { throw new Error('Offline'); };
+        else respond(reply);
+        await assert.rejects(p.unblock('girl', settings));
+        assert.deepEqual(p.state, before);
+        assert.equal(p.thread('girl').blocked, true);
+        assert.equal(p.inFlight.size, 0);
+      }
+    });
+    await t.test('unblocking rejects unknown contacts, missing contact info, and concurrent requests', async () => {
+      const p = phone();
+      await assert.rejects(p.unblock('missing', settings), /Unknown contact/);
+      p.base.charInfo.girl.flags.gaveContactInfo = false;
+      await assert.rejects(p.unblock('girl', settings), /hasn't given/);
+      p.base.charInfo.girl.flags.gaveContactInfo = true;
+      p.state.delta.blocked.push('girl');
+      let finish;
+      globalThis.fetch = () => new Promise(resolve => { finish = resolve; });
+      const first = p.unblock('girl', settings);
+      assert.equal(p.thread('girl').blocked, true);
+      await assert.rejects(p.unblock('girl', settings), /still replying/);
+      await assert.rejects(p.deleteMessage('girl', 'a'), /Wait/);
+      await assert.rejects(p.choose('1', '2', true), /Wait/);
+      await assert.rejects(p.sync(), /Wait/);
+      finish(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ messages: ['I unblocked you.'], summary: 'Reopened contact.', blocked: false }) } }] })));
+      await first;
+      assert.equal(p.thread('girl').messages.filter(m => m.text === 'I unblocked you.').length, 1);
+    });
   } finally {
     globalThis.fetch = originalFetch;
     await rm(dir, { recursive: true, force: true });

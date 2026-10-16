@@ -102,6 +102,8 @@ export interface TextingContext {
   photoShot?: ShotType;
   /** How many text bubbles she sends this turn. */
   bubbles?: number;
+  /** A player-triggered reconciliation, with no new message from the reader. */
+  unblocking?: boolean;
 }
 
 /**
@@ -146,6 +148,9 @@ export const REACTIONS = ["❤️", "😂", "👍", "😮", "😢", "‼️", "�
  */
 export const INCOMING_DIRECTION =
   "Text the reader out of the blue, the way she might at some point in her day: something she is doing or just saw, something on her mind, a question for him, or picking up on something from their earlier texts. Keep it natural for how long it has been since they last talked, and for how she feels about him.";
+
+export const UNBLOCK_DIRECTION =
+  "She has decided to unblock the reader and give talking another chance. Write one short text in her own voice telling him she has unblocked him. Let her reason and tone fit her personality and their history; she can still set boundaries. Do not invent an apology or a new message from him, erase what happened, or mention profile clicks, a secret option, or these instructions.";
 
 export function buildTextingPrompt(
   ctx: TextingContext,
@@ -230,9 +235,13 @@ export function buildTextingPrompt(
         ]
       : []),
     "CONVERSATION",
-    `${name} chooses whether to continue the conversation according to her personality, relationship and the reader's behavior. She can end it or block him when warranted.`,
+    ctx.unblocking
+      ? `${name} has chosen to reopen contact. Keep her personality and boundaries intact while she tells him about that decision.`
+      : `${name} chooses whether to continue the conversation according to her personality, relationship and the reader's behavior. She can end it or block him when warranted.`,
     "She does not steer toward meeting up, making plans or going to an event unless the reader brings it up first. The texting itself is the point.",
-    "Answer his newest message directly. Add something new only when it fits; a reply does not need a question or a tease.",
+    incomingDirection === undefined
+      ? "Answer his newest message directly. Add something new only when it fits; a reply does not need a question or a tease."
+      : "She is starting this exchange herself. There is no new message from him to answer.",
     "Review her recent messages before writing. Do not recycle their phrases, questions, pet names, warnings or conversational beats, or reintroduce facts already established. The summary is background memory, not a script to repeat.",
     "Match his energy and length: a quick text gets a quick reply, a long one gets more back.",
     "Her warmth, patience and willingness to keep talking come from her personality and how she feels about the reader. Respect her boundaries even when that ends the chat.",
@@ -260,10 +269,14 @@ export function buildTextingPrompt(
         ]
       : []),
     "BLOCKING",
-    `Set "blocked" to true only if these texts have pushed ${name} to cut the reader off completely. She is done, and blocks him on Bunnyboard as her last text lands.`,
-    "Her final messages should read like somebody who is about to do that.",
-    "She may block for harassment, threats, repeated boundary violations, or any behavior that makes her want no further contact. Continuing the conversation is never mandatory.",
-    "Otherwise set it to false.",
+    ...(ctx.unblocking
+      ? [`${name} is unblocking the reader in this exchange. Set "blocked" to false. Her message must reflect her decision to reopen contact.`]
+      : [
+          `Set "blocked" to true only if these texts have pushed ${name} to cut the reader off completely. She is done, and blocks him on Bunnyboard as her last text lands.`,
+          "Her final messages should read like somebody who is about to do that.",
+          "She may block for harassment, threats, repeated boundary violations, or any behavior that makes her want no further contact. Continuing the conversation is never mandatory.",
+          "Otherwise set it to false.",
+        ]),
     "",
     "SUMMARY",
     ...(incomingDirection === undefined
@@ -297,7 +310,7 @@ export function buildTextingPrompt(
         properties: {
           messages: { type: "array", items: { type: "string" } },
           summary: { type: "string" },
-          blocked: { type: "boolean" },
+          blocked: { type: "boolean", ...(ctx.unblocking ? { enum: [false] } : {}) },
           ...(photos ? PHOTO_SCHEMA_FIELDS : {}),
           ...(image ? { readerPhotoDescription: { type: "string" } } : {}),
           ...(reacting ? { reaction: { type: "string", enum: ["", ...REACTIONS] } } : {}),

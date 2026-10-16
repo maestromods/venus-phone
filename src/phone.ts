@@ -30,6 +30,7 @@ import type { PhotoTier } from "./game/types.js";
 import {
   buildTextingPrompt,
   INCOMING_DIRECTION,
+  UNBLOCK_DIRECTION,
   fitBubbles,
   parseTextingReply,
   pickBubbleCount,
@@ -57,6 +58,8 @@ interface Delta {
   summaries: Record<string, string>;
   /** Girls who blocked the reader over the phone. */
   blocked: string[];
+  /** Explicit unblocks, including blocks inherited from the game's save. */
+  unblocked?: string[];
   /** Her texts you haven't opened yet, per girl; carried into the game's unread badge on sync. */
   unread?: Record<string, number>;
 }
@@ -389,6 +392,32 @@ export class Phone {
     return this.thread(charId);
   }
 
+  /** The hidden profile gesture reopens contact only after her message is ready. */
+  async unblock(charId: string, llm: LlmSettings) {
+    const { state } = this.require();
+    const character = this.characterOf(charId);
+    const save = this.view();
+    const flags = save.charInfo[charId]?.flags ?? emptyFlags();
+    if (!flags.gaveContactInfo) throw new PhoneError(`${character.firstName} hasn't given you her number.`, 403);
+    if (this.inFlight.has(charId)) throw new PhoneError(`${character.firstName} is still replying.`, 409);
+    if (!flags.blocked) throw new PhoneError(`${character.firstName} hasn't blocked you.`, 409);
+    const request = buildTextingPrompt(
+      { ...this.promptContext(save, character, "none", false), bubbles: 1, unblocking: true },
+      "", undefined, UNBLOCK_DIRECTION,
+    );
+    this.inFlight.add(charId);
+    try {
+      const reply = cleanReply(parseTextingReply(await completeStructured(llm, request)), "none");
+      if (!reply.messages.length || reply.blocked) throw new PhoneError("No unblock message was returned. Try the profile gesture again.", 502);
+      if (this.state !== state) throw new PhoneError("The selected save changed. Try again.", 409);
+      reply.messages = fitBubbles(reply.messages, 1);
+      await this.file(charId, character, save, [], reply, "none", true, true);
+    } finally {
+      this.inFlight.delete(charId);
+    }
+    return this.thread(charId);
+  }
+
   private assertCanText(charId: string, save: SaveFile, character: Character): void {
     const flags = save.charInfo[charId]?.flags ?? emptyFlags();
     if (!flags.gaveContactInfo) throw new PhoneError(`${character.firstName} hasn't given you her number.`, 403);
@@ -617,6 +646,7 @@ export class Phone {
     reply: ReturnType<typeof parseTextingReply>,
     allowedPhoto: ReturnType<typeof allowedPhotoTier>,
     unread: boolean,
+    unblocking = false,
   ): Promise<ChatMessage[]> {
     const { state } = this.require();
     const stamp = { date: save.date, time: save.time };
@@ -632,11 +662,24 @@ export class Phone {
       ...stamp,
       ...(unread ? { exReplyTo: "incoming-texts:incoming", exIncomingTurn: turn } : {}),
     }));
-    const added = [...sent, ...replies];
+    const added: ChatMessage[] = [
+      ...sent,
+      ...(unblocking ? [{ id: randomUUID(), sender: "system" as const, text: `${character.firstName} unblocked you.`, ...stamp }] : []),
+      ...replies,
+    ];
     if (reply.blocked) added.push({ id: randomUUID(), sender: "system", text: `${character.firstName} blocked you.`, ...stamp });
     (state.delta.added[charId] ??= []).push(...added);
     if (reply.summary) state.delta.summaries[charId] = reply.summary;
-    if (reply.blocked && !state.delta.blocked.includes(charId)) state.delta.blocked.push(charId);
+    if (unblocking) {
+      state.delta.blocked = state.delta.blocked.filter((id) => id !== charId);
+      const unblocked = (state.delta.unblocked ??= []);
+      if (!unblocked.includes(charId)) unblocked.push(charId);
+      if (state.unanswered) delete state.unanswered[charId];
+      if (!reply.summary) state.delta.summaries[charId] = "";
+    } else if (reply.blocked) {
+      if (!state.delta.blocked.includes(charId)) state.delta.blocked.push(charId);
+      state.delta.unblocked = state.delta.unblocked?.filter((id) => id !== charId);
+    }
     if (unread) {
       state.delta.unread ??= {};
       state.delta.unread[charId] = (state.delta.unread[charId] ?? 0) + replies.length;
@@ -958,6 +1001,10 @@ export function applyDelta(base: SaveFile, delta: Delta, forGame: boolean): Save
   for (const [charId, summary] of Object.entries(delta.summaries)) {
     const conversation = save.bunnyboard.conversations[charId];
     if (conversation) conversation.summary = summary;
+  }
+  for (const charId of delta.unblocked ?? []) {
+    const info = save.charInfo[charId];
+    if (info) info.flags = { ...(info.flags ?? emptyFlags()), blocked: false };
   }
   for (const charId of delta.blocked) {
     const info = save.charInfo[charId];

@@ -77,7 +77,9 @@
     <section id="view-thread" class="view thread" hidden aria-labelledby="thread-title">
       <header class="bar">
         <button type="button" class="icon-btn" data-go="contacts" aria-label="Back to chats">‹</button>
-        <img id="thread-avatar" class="avatar" alt="" width="36" height="36">
+        <button type="button" id="thread-profile" class="profile-btn" aria-label="Contact profile picture">
+          <img id="thread-avatar" class="avatar" alt="" width="36" height="36" draggable="false">
+        </button>
         <h1 id="thread-title"></h1>
         <button type="button" id="incoming-btn" class="icon-btn" aria-label="Texting settings for this chat" aria-expanded="false" aria-controls="incoming-panel">⏱</button>
       </header>
@@ -245,3 +247,4 @@
   <script src="/app.js?v=9" type="module"></script>
 </body>
 </html>
+
