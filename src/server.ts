@@ -306,10 +306,18 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
       return sendJson(res, 200, { notices: phone.noticesSince(since), unread: phone.unreadTotal(), now: Date.now() });
     }
 
-    const chat = /^\/api\/chats\/([A-Za-z0-9-]{1,64})(\/send|\/incoming)?$/.exec(url.pathname);
+    const chat = /^\/api\/chats\/([A-Za-z0-9-]{1,64})(\/send|\/incoming|\/delete|\/regenerate)?$/.exec(url.pathname);
     if (chat?.[1]) {
       const charId = chat[1];
       const pt = phone.playthroughId();
+      if (method === "POST" && (chat[2] === "/delete" || chat[2] === "/regenerate")) {
+        const body = await readJson(req);
+        if (typeof body.id !== "string" || !body.id || body.id.length > 200) return sendJson(res, 400, { error: "Choose a message." });
+        const thread = chat[2] === "/delete"
+          ? await phone.deleteMessage(charId, body.id)
+          : await phone.regenerate(charId, body.id, await llmSettings(false));
+        return sendJson(res, 200, { ...thread, incoming: pt ? incomingSetting(pt, charId) : null });
+      }
       if (method === "GET" && !chat[2]) {
         const thread = phone.thread(charId);
         await phone.markRead(charId);
@@ -621,3 +629,4 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+

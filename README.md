@@ -67,3 +67,14 @@ Settings can also come from environment variables: `VENUS_GAME_DIR`, `VENUS_PHON
 ## License
 
 AGPL-3.0-only, matching Venus University and Maestro's community mods. See [LICENSE](LICENSE) for the full license text.
+
+# Message controls
+
+Each message has a **Delete** button. Deletion is saved across restarts and applied to the next synced save, including when the game has created a newer save. It does not undo a character's block or erase game memories, and it leaves photo files on disk.
+
+The last bubble of the latest reply has **Regenerate reply**. It replaces that entire reply with a fresh text alternative; earlier replies cannot be regenerated because later messages depend on them. Regeneration uses your configured text model and does not generate a replacement photo. A photo you sent is represented by its stored description. If the AI request fails, the existing reply stays in place. Blocked chats cannot be regenerated.
+
+Editing clears the running chat recap to avoid carrying removed messages into future prompts. Future replies still use the surviving recent messages and the character's game memories, but details held only in the old recap will be forgotten.
+
+Run `npm test` to build and check deletion, regeneration, blocking, persistence and edit guards with a mocked AI provider.
+

@@ -351,7 +351,7 @@ function renderThread(thread, scroll, held = new Set()) {
   if (!revealing) $("typing").hidden = !thread.busy;
 
   const shown = thread.messages.filter((m) => !held.has(m.id));
-  const key = JSON.stringify([held.size > 0, ...shown.map((m) => [m.id, m.photo?.pending, m.photo?.failed, m.reaction])]);
+  const key = JSON.stringify([thread.busy, held.size > 0, ...shown.map((m) => [m.id, m.text, m.canRegenerate, m.photo?.pending, m.photo?.failed, m.reaction])]);
   if (key === lastRenderKey) return;
   lastRenderKey = key;
 
@@ -389,9 +389,35 @@ function renderThread(thread, scroll, held = new Set()) {
       bubble.classList.add("reacted");
       bubble.append(el("span", { class: "reaction", "aria-label": `${thread.name.split(" ")[0]} reacted ${m.reaction}`, text: m.reaction }));
     }
+    const actions = el("div", { class: "message-actions" });
+    actions.append(el("button", { type: "button", text: "Delete", disabled: thread.busy || revealing, onclick: () => editMessage(thread, m, "delete") }));
+    if (m.canRegenerate) actions.append(el("button", { type: "button", text: "Regenerate reply", disabled: thread.busy || revealing, onclick: () => editMessage(thread, m, "regenerate") }));
+    bubble.append(actions);
     list.append(bubble);
   }
   if (scroll || nearBottom) list.scrollTop = list.scrollHeight;
+}
+
+let editingMessage = false;
+async function editMessage(thread, message, action) {
+  if (editingMessage || revealing) return;
+  if (action === "delete" && !confirm("Delete this message? It will also be removed from the next synced save. Deleting a message does not undo a block.")) return;
+  const charId = thread.charId;
+  editingMessage = true;
+  $("thread-error").textContent = "";
+  for (const button of document.querySelectorAll(".message-actions button")) button.disabled = true;
+  try {
+    const updated = await api(`/api/chats/${charId}/${action}`, { body: { id: message.id } });
+    if (openCharId === charId) {
+      lastRenderKey = "";
+      renderThread(updated, false);
+    }
+  } catch (err) {
+    if (openCharId === charId) $("thread-error").textContent = err.message;
+  } finally {
+    editingMessage = false;
+    if (openCharId === charId) await refreshThread().catch(() => {});
+  }
 }
 
 let revealing = false;
@@ -812,3 +838,4 @@ for (const button of document.querySelectorAll("[data-go]")) {
 }
 
 boot().catch(() => show("lock"));
+

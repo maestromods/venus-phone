@@ -271,3 +271,8 @@ select.compact { width: auto; min-height: 36px; padding: 0.2rem 0.4rem; font-siz
 :root[data-desk="aurora"] { --desk-bg: linear-gradient(140deg, #0b132b 0%, #1c7c54 50%, #7b2cbf 100%) fixed; }
 :root[data-desk="rose"] { --desk-bg: linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%) fixed; }
 :root[data-desk="graphite"] { --desk-bg: radial-gradient(circle at 30% 20%, #3a3f47 0%, #15171b 70%) fixed; }
+
+/* Visible on touch screens as well as desktop. */
+.message-actions { display: flex; gap: .75rem; margin-top: .5rem; }
+.message-actions button { font: inherit; font-size: .72rem; padding: .25rem; color: inherit; background: transparent; border: 0; text-decoration: underline; opacity: .75; cursor: pointer; }
+.message-actions button:disabled { opacity: .35; cursor: wait; }
