@@ -440,8 +440,8 @@ function renderThread(thread, scroll, held = new Set()) {
         ),
       );
     }
-    // Her reaction shows once her reply has landed, like a tapback.
-    if (m.reaction && !held.size) {
+    // Existing tapbacks stay visible while new replies arrive.
+    if (m.reaction) {
       bubble.classList.add("reacted");
       bubble.append(el("span", { class: "reaction", "aria-label": `${thread.name.split(" ")[0]} reacted ${m.reaction}`, text: m.reaction }));
     }

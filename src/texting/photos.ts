@@ -214,11 +214,13 @@ export function captionForShot(caption: string, shot: ShotType): string {
     .trim();
 }
 
-function captioning(character: Character, shot: ShotType): string[] {
+function captioning(character: Character, shot: ShotType, replacement = false): string[] {
   const name = character.firstName;
   const shotLine = SHOTS.find((s) => s.shot === shot)?.line(name) ?? "";
   return [
-    'A picture is worth sending when the texts are already about one — she offers it, or he asked and she wants to. Most replies are just words: set "sendPhoto" false and leave "photoPrompt" empty.',
+    replacement
+      ? 'This is a replacement of a reply that already included a picture. Include a fresh picture with the replacement: set "sendPhoto" true and supply its "photoPrompt".'
+      : 'A picture is worth sending when the texts are already about one — she offers it, or he asked and she wants to. Most replies are just words: set "sendPhoto" false and leave "photoPrompt" empty.',
     `Write "photoPrompt" as what the picture shows, the way ${name} would caption it to herself. One sentence, and a full one: where she is, what she is wearing, how she is sitting or lying or standing, what her hands are doing, how close the shot is, and where she is looking.`,
     shotLine,
     'What is not written is not drawn. A caption that says only "a photo of me" gets a picture of nobody in particular.',
@@ -239,7 +241,7 @@ function keeping(name: string): string[] {
 }
 
 /** The PHOTOS block of a DM prompt; empty when she may not send one. */
-export function photoPromptLines(character: Character, info: CharInfo | undefined, allowed: PhotoTier, shot: ShotType = "taken"): string[] {
+export function photoPromptLines(character: Character, info: CharInfo | undefined, allowed: PhotoTier, shot: ShotType = "taken", replacement = false): string[] {
   if (allowed === "none") return [];
   const name = character.firstName;
   if (allowed === "explicit") {
@@ -247,7 +249,7 @@ export function photoPromptLines(character: Character, info: CharInfo | undefine
     return [
       ...opening(name),
       `${name} will send anything of herself, undressed included. ${INTIMATE_REASON[reason]}`,
-      ...captioning(character, shot),
+      ...captioning(character, shot, replacement),
       `So a picture of ${name} undressed is captioned as one, in plain words: what is bare, what she is doing, what the shot shows. Coy wording is a coy picture — "the top of a shirt" is a photograph of a shirt.`,
       `Write it as she would, not as a catalogue: she is sending this to ${reason === "intimate" ? "somebody she has slept with" : "somebody she's into"}, and she knows what she is doing.`,
       ...keeping(name),
@@ -258,7 +260,7 @@ export function photoPromptLines(character: Character, info: CharInfo | undefine
     allowed === "suggestive"
       ? `${name} will send a flirty one — what she is wearing, a swimsuit, underwear — but nothing more than that. Nothing undressed.`
       : `${name} only sends ordinary pictures: where she is, what she is eating, her outfit, something that made her laugh. Nothing flirty, nothing undressed.`,
-    ...captioning(character, shot),
+    ...captioning(character, shot, replacement),
     ...keeping(name),
   ];
 }
@@ -268,3 +270,4 @@ export const PHOTO_SCHEMA_FIELDS = {
   photoPrompt: { type: "string" },
   photoTier: { type: "string", enum: [...PHOTO_TIERS] },
 };
+

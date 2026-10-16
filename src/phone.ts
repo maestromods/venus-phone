@@ -342,11 +342,13 @@ export class Phone {
     this.notices = this.notices.filter((n) => n.charId !== charId);
   }
 
-  async regenerate(charId: string, id: string, llm: LlmSettings) {
+  async regenerate(charId: string, id: string, llm: LlmSettings, photoSwitches: PhotoSwitches = { enabled: false, explicit: false }) {
     const { state } = this.require();
     const character = this.characterOf(charId);
     const save = this.view();
     this.assertCanText(charId, save, character);
+    // Keep the replaced photo's filename reserved, even if its old render is still pending.
+    const originalSave = structuredClone(save);
     const conversation = save.bunnyboard.conversations[charId];
     if (!conversation || this.regenerationTarget(conversation.messages)?.id !== id) {
       throw new PhoneError("Only the latest reply can be regenerated.", 409);
@@ -362,21 +364,41 @@ export class Phone {
       while (start > 0 && messages[start - 1]?.sender === "contact" && !messages[start - 1]?.exIncomingTurn) start--;
     }
     const removed = messages.slice(start);
+    const originalPhoto = [...removed].reverse().find((m) => m.photo)?.photo;
+    let allowedPhoto: PhotoTier = "none";
+    if (originalPhoto) {
+      if (!photoSwitches.enabled) throw new PhoneError("Enable photos in Settings to regenerate this photo reply. The original reply has been kept.");
+      const possible = allowedPhotoTier(character, save.charInfo[charId], save.date, photoSwitches);
+      const originalAllowed = settlePhoto({ sendPhoto: true, photoPrompt: originalPhoto.scene, stated: originalPhoto.tier, allowed: possible });
+      if (!originalAllowed.send) throw new PhoneError("This photo is outside the current photo settings or relationship limits. The original reply has been kept.");
+      allowedPhoto = originalAllowed.tier;
+    }
     conversation.messages = messages.slice(0, start);
     conversation.summary = null;
     const sent = conversation.messages[conversation.messages.length - 1];
     const incoming = Boolean(last.exIncomingTurn) || sent?.sender !== "player";
     if (!incoming) conversation.messages.pop();
     const text = !incoming && sent ? sent.text + (this.readerPhotoOf(sent) ? ` ${readerPhotoNote(this.readerPhotoOf(sent)!.scene)}` : "") : "";
+    const photoShot = shotFromAsk(text) ?? (originalPhoto ? shotFromAsk(originalPhoto.scene) : null) ?? pickShot();
+    const bubbles = pickBubbleCount(text);
     const request = buildTextingPrompt(
-      { ...this.promptContext(save, character, "none", false), bubbles: pickBubbleCount(text) },
+      { ...this.promptContext(save, character, allowedPhoto, Boolean(originalPhoto)), bubbles, photoShot, replacementPhoto: originalPhoto },
       text, undefined, incoming ? INCOMING_DIRECTION : undefined,
     );
     request.user += "\nREGENERATION\nWrite a fresh alternative with different wording and a different conversational beat. This replaces the previous reply. Do not mention regeneration.";
     this.inFlight.add(charId);
     try {
-      const reply = cleanReply(parseTextingReply(await completeStructured(llm, request)), "none");
+      const initial = cleanReply(parseTextingReply(await completeStructured(llm, request)), allowedPhoto);
+      initial.messages = fitBubbles(initial.messages, bubbles);
+      initial.photoPrompt = captionForShot(initial.photoPrompt, photoShot);
+      const { reply } = originalPhoto
+        ? await this.keepPhotoPromise(llm, request, character, save, initial, allowedPhoto, allowedPhoto, photoShot, true)
+        : { reply: initial };
       if (!reply.messages.length) throw new PhoneError("No replacement was returned. Try again.", 502);
+      if (originalPhoto && !reply.blocked && !settlePhoto({
+        sendPhoto: reply.sendPhoto, photoPrompt: reply.photoPrompt,
+        stated: isPhotoTier(reply.photoTier) ? reply.photoTier : undefined, allowed: allowedPhoto,
+      }).send) throw new PhoneError("No replacement photo was returned. Your original reply is still here; try regenerating again.", 502);
       if (this.state !== state) throw new PhoneError("The selected save changed. Try again.", 409);
       this.removeMessages(charId, removed.map((m) => m.id));
       if (!incoming && sent) {
@@ -384,7 +406,7 @@ export class Phone {
         const original = state.delta.added[charId]?.find((m) => m.id === sent.id);
         if (original) delete original.exReaction;
       }
-      await this.file(charId, character, save, [], reply, "none", incoming);
+      await this.file(charId, character, originalSave, [], reply, allowedPhoto, incoming);
       await this.markRead(charId);
     } finally {
       this.inFlight.delete(charId);

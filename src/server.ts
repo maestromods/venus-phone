@@ -320,7 +320,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
         if (typeof body.id !== "string" || !body.id || body.id.length > 200) return sendJson(res, 400, { error: "Choose a message." });
         const thread = chat[2] === "/delete"
           ? await phone.deleteMessage(charId, body.id)
-          : await phone.regenerate(charId, body.id, await llmSettings(false));
+          : await phone.regenerate(charId, body.id, await llmSettings(false), { enabled: config.photos, explicit: config.explicitPhotos });
         return sendJson(res, 200, { ...thread, incoming: pt ? incomingSetting(pt, charId) : null });
       }
       if (method === "GET" && !chat[2]) {

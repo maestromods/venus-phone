@@ -24,10 +24,22 @@ function phone() {
   p.record = { chars: ['girl'], playerFirstName: 'Reader', playerLastName: '', term: { index: 0 } };
   p.characters.set('girl', { charId: 'girl', firstName: 'Girl', lastName: '', likes: [], dislikes: [], traits: [], behavior: {}, outfit: [], peOutfit: [], swimOutfit: [] });
   // Keep these tests focused on message lifecycle, independent of game profile formatting.
-  p.promptContext = (save, character) => ({ save, character, roster: [], player: { firstName: 'Reader', lastName: '', termIndex: 0 }, season: 'spring', allowedPhoto: 'none', photoRequested: false });
+  p.promptContext = (save, character, allowedPhoto = 'none', photoRequested = false) => ({ save, character, roster: [], player: { firstName: 'Reader', lastName: '', termIndex: 0 }, season: 'spring', allowedPhoto, photoRequested });
   return p;
 }
 const settings = { provider: 'openrouter', endpointUrl: 'https://example.invalid', apiKey: 'test', model: 'test', thinking: 'low' };
+const photos = { enabled: true, explicit: false };
+function photoPhone() {
+  const p = phone();
+  p.base.bunnyboard.conversations.girl.messages[1].photo = {
+    tier: 'everyday', scene: 'Sitting by a cafe window in her everyday clothes.', file: 'girl_chat_001.png', pending: true,
+  };
+  p.files.photosDir = () => path.join(dir, 'photos');
+  p.renders = [];
+  // Capture queued jobs without starting ComfyUI. The pending photo need not exist on disk yet.
+  p.drawPhoto = async (playthrough, character, message) => { p.renders.push({ playthrough, character, message }); };
+  return p;
+}
 let request;
 const originalFetch = globalThis.fetch;
 function respond(reply) {
@@ -82,6 +94,69 @@ test('message lifecycle', async (t) => {
       await assert.rejects(p.regenerate('girl', 'b', settings));
       assert.deepEqual(p.state, before);
       assert.equal(p.inFlight.size, 0);
+    });
+    await t.test('photo regeneration replaces the whole reply and queues a distinct new photo each time', async () => {
+      const p = photoPhone();
+      const freshPhoto = 'Standing by the cafe window in her everyday clothes, smiling at the camera.';
+      respond({ messages: ['How about this one?'], summary: 'A cafe photo.', blocked: false, sendPhoto: true, photoPrompt: freshPhoto, photoTier: 'everyday' });
+      const result = await p.regenerate('girl', 'b', settings, photos);
+      assert.deepEqual(result.messages.map(m => m.text), ['Hello', 'How about this one?']);
+      assert.equal(result.messages.at(-1).photo.pending, true);
+      assert.equal(result.messages.at(-1).photo.file, 'girl_chat_002.png');
+      assert.equal(p.renders.length, 1);
+      assert.equal(p.renders[0].message.photo.scene, freshPhoto);
+      assert.equal(p.renders[0].playthrough, '1');
+      assert.ok(request.response_format.json_schema.schema.required.includes('photoPrompt'));
+      assert.match(request.messages.at(-1).content, /Sitting by a cafe window/);
+      assert.doesNotMatch(request.messages.at(-1).content, /Old reply|Old followup/);
+      assert.equal((request.messages.at(-1).content.match(/YOU: Hello/g) ?? []).length, 1);
+      const again = await p.regenerate('girl', result.messages.at(-1).id, settings, photos);
+      assert.equal(again.messages.at(-1).photo.file, 'girl_chat_003.png');
+      assert.equal(p.renders.length, 2);
+      assert.notEqual(p.renders[0].message.id, p.renders[1].message.id);
+      assert.equal(applyDelta(base, p.state.delta, true).bunnyboard.conversations.girl.messages.at(-1).photo.file, 'girl_chat_003.png');
+    });
+    await t.test('photo generation metadata can be repaired before replacing a reply', async () => {
+      const p = photoPhone();
+      let requests = 0;
+      globalThis.fetch = async () => {
+        const reply = requests++ === 0
+          ? { messages: ['Here you go!'], summary: 'A new picture.', blocked: false }
+          : { sendsPicture: true, photoPrompt: 'Standing outdoors in her everyday clothes, waving at the camera.', photoTier: 'everyday' };
+        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(reply) } }] }));
+      };
+      const result = await p.regenerate('girl', 'b', settings, photos);
+      assert.equal(requests, 2);
+      assert.ok(result.messages.at(-1).photo);
+      assert.equal(p.renders.length, 1);
+    });
+    await t.test('missing or disallowed replacement photos keep the existing reply intact', async () => {
+      const p = photoPhone();
+      const before = structuredClone(p.state);
+      const messages = p.thread('girl').messages;
+      for (const extra of [{ sendPhoto: false }, { sendPhoto: true, photoTier: 'suggestive', photoPrompt: 'Wearing a swimsuit by the pool.' }]) {
+        respond({ messages: ['A replacement'], summary: 'New recap', blocked: false, ...extra });
+        await assert.rejects(p.regenerate('girl', 'b', settings, photos), /No replacement photo/);
+        assert.deepEqual(p.state, before);
+        assert.deepEqual(p.thread('girl').messages, messages);
+        assert.equal(p.renders.length, 0);
+        assert.equal(p.inFlight.size, 0);
+      }
+      await assert.rejects(p.regenerate('girl', 'b', settings, { enabled: false, explicit: false }), /Enable photos/);
+      p.base.bunnyboard.conversations.girl.messages[1].photo.tier = 'suggestive';
+      await assert.rejects(p.regenerate('girl', 'b', settings, photos), /current photo settings or relationship limits/);
+    });
+    await t.test('regenerated incoming photos retain incoming markers, while a new block sends no photo', async () => {
+      const p = photoPhone();
+      for (const m of p.base.bunnyboard.conversations.girl.messages.slice(1)) m.exIncomingTurn = 'incoming';
+      respond({ messages: ['Look at this.'], summary: 'Photo.', blocked: false, sendPhoto: true, photoPrompt: 'Standing at a cafe in her everyday clothes.', photoTier: 'everyday' });
+      const result = await p.regenerate('girl', 'b', settings, photos);
+      assert.equal(p.state.delta.added.girl.at(-1).exReplyTo, 'incoming-texts:incoming');
+      assert.ok(result.messages.at(-1).photo);
+      respond({ messages: ['Do not contact me again.'], summary: 'Blocked.', blocked: true });
+      const blocked = await p.regenerate('girl', result.messages.at(-1).id, settings, photos);
+      assert.equal(blocked.blocked, true);
+      assert.equal(p.renders.length, 1);
     });
     await t.test('blocking survives deletion and rejects sending and regeneration', async () => {
       const p = phone();

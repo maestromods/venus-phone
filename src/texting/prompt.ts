@@ -104,6 +104,8 @@ export interface TextingContext {
   bubbles?: number;
   /** A player-triggered reconciliation, with no new message from the reader. */
   unblocking?: boolean;
+  /** The photo in a reply being replaced; keep its context but generate a new shot. */
+  replacementPhoto?: { scene: string };
 }
 
 /**
@@ -199,6 +201,7 @@ export function buildTextingPrompt(
     `It is ${formatDateBanner(save.date, save.time, season)}`,
     formatSemesterProgress(save.date),
     `${name} has some free time right now and nowhere she needs to be.`,
+    "The save's day/night label is scene context, not a deadline. Texting does not advance that clock; do not infer that she must go to bed or that hours passed just because the thread is long.",
     "",
     ...(summary ? ["TEXTING SO FAR", `"${summary}"`, ""] : []),
     "RECENT MESSAGES",
@@ -237,14 +240,17 @@ export function buildTextingPrompt(
     "CONVERSATION",
     ctx.unblocking
       ? `${name} has chosen to reopen contact. Keep her personality and boundaries intact while she tells him about that decision.`
-      : `${name} chooses whether to continue the conversation according to her personality, relationship and the reader's behavior. She can end it or block him when warranted.`,
+      : `${name} is here for an ongoing, casual conversation. Respond to what the reader actually says in her own voice, with her interest and tone shaped by their relationship.`,
     "She does not steer toward meeting up, making plans or going to an event unless the reader brings it up first. The texting itself is the point.",
     incomingDirection === undefined
       ? "Answer his newest message directly. Add something new only when it fits; a reply does not need a question or a tease."
       : "She is starting this exchange herself. There is no new message from him to answer.",
     "Review her recent messages before writing. Do not recycle their phrases, questions, pet names, warnings or conversational beats, or reintroduce facts already established. The summary is background memory, not a script to repeat.",
     "Match his energy and length: a quick text gets a quick reply, a long one gets more back.",
-    "Her warmth, patience and willingness to keep talking come from her personality and how she feels about the reader. Respect her boundaries even when that ends the chat.",
+    "Let the conversation develop naturally: react, share a thought, joke, or follow an interesting thread when it fits. Short replies and comfortable pauses are fine; do not force a question, a new topic, or a tidy ending onto every turn.",
+    "Do not invent tiredness, bedtime, errands, classes, a dying battery, or other excuses to get the reader off the phone. Avoid routine goodnight, goodbye, talk-later, and go-to-sleep sign-offs unless the reader is actually leaving or a present reason is established in the conversation.",
+    "An earlier routine sign-off is history, not a standing instruction to keep ending the chat when the reader returns. Engage with his new message while remembering any real unresolved conflict.",
+    "She can disagree, refuse a specific request, or set a boundary without ending all contact. Do not turn ordinary messages into repeated warnings or boundary lectures. If his behavior actually warrants cutting contact, use the BLOCKING rules below.",
     "",
     ...(ctx.offerReaction && incomingDirection === undefined
       ? [
@@ -255,14 +261,22 @@ export function buildTextingPrompt(
           "",
         ]
       : []),
-    ...photoPromptLines(character, info, ctx.allowedPhoto, ctx.photoShot),
-    ...(ctx.allowedPhoto !== "none" && !ctx.photoRequested
+    ...photoPromptLines(character, info, ctx.allowedPhoto, ctx.photoShot, Boolean(ctx.replacementPhoto)),
+    ...(ctx.replacementPhoto
+      ? [
+          "REPLACEMENT PHOTO",
+          "This reply includes a newly rendered photo. Set sendPhoto to true and write a fresh photoPrompt. Keep the original subject, clothing and situation consistent with the reader's request, but vary the framing, pose or expression. Her text accompanies that new photo; do not mention regeneration.",
+          `Original photo description (context only): ${ctx.replacementPhoto.scene}`,
+          "",
+        ]
+      : []),
+    ...(ctx.allowedPhoto !== "none" && !ctx.photoRequested && !ctx.replacementPhoto
       ? [
           `The reader has not asked for a picture. ${name} may still send one if it genuinely fits the moment, but usually she just texts: default to "sendPhoto" false.`,
           "",
         ]
       : []),
-    ...(ctx.allowedPhoto !== "none" && ctx.photoRequested
+    ...(ctx.allowedPhoto !== "none" && ctx.photoRequested && !ctx.replacementPhoto
       ? [
           `The reader asked for a picture. If ${name} sends one, it is the picture he asked for, as far as she is willing: the kind of shot, the outfit, the place, the pose or the part of her he mentioned. Anything he didn't specify is her choice, following the shot described above.`,
           "",
@@ -272,10 +286,9 @@ export function buildTextingPrompt(
     ...(ctx.unblocking
       ? [`${name} is unblocking the reader in this exchange. Set "blocked" to false. Her message must reflect her decision to reopen contact.`]
       : [
-          `Set "blocked" to true only if these texts have pushed ${name} to cut the reader off completely. She is done, and blocks him on Bunnyboard as her last text lands.`,
-          "Her final messages should read like somebody who is about to do that.",
-          "She may block for harassment, threats, repeated boundary violations, or any behavior that makes her want no further contact. Continuing the conversation is never mandatory.",
-          "Otherwise set it to false.",
+          `Set "blocked" to true when the reader's actual behavior gives ${name} a convincing reason, consistent with her personality and their history, to want no further contact: for example harassment, threats, cruelty, or repeated violations of a stated boundary. She can block then; keeping the conversation flowing does not override that decision.`,
+          "A short message, an ordinary lull, a disagreement, or declining one request does not by itself mean she wants to cut all contact. Do not invent a conflict to justify blocking.",
+          "When she blocks, her final texts should fit that decision. Otherwise set blocked to false and respond naturally without a compulsory farewell.",
         ]),
     "",
     "SUMMARY",
