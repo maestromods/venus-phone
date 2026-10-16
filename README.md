@@ -30,7 +30,7 @@ If Windows Firewall asks, allow **Private networks** only.
 - **📷:** send her a photo. She reacts to what is in it. Location and other metadata are stripped first. On OpenRouter this needs a vision model; set one in Settings (default `deepseek/deepseek-v4.1-flash`).
 - **"She texts first" (⏱ in each chat):** off, about every 5, 15 or 30 minutes, every 1–8 hours, or random (5 minutes to 4 hours). Set per girl, along with how many texts in a row (1–10) she can send before you reply. Never between 11pm and 8am.
 - **Her replies:** she sends a varied number of texts each time (usually one or two, sometimes more), and now and then reacts to your text with an emoji.
-- **Her photos:** she sends one when you ask, or now and then on her own. Ask for a selfie, mirror pic, full body, timer shot or candid and she follows it; otherwise the kind of shot varies. They are drawn by the game's ComfyUI with the same rules as in-game, including what she will send at your current relationship stage.
+- **Her photos:** she sends one when you ask, or now and then on her own. Ask for a selfie, mirror pic, full body, timer shot or candid and she follows it; otherwise the kind of shot varies. They are drawn using the game's local ComfyUI. DM photo behavior and relationship-based photo tiers are adapted from **Photo Feature**, naudh1r's mod in **Venus Extracurriculars**; these features are not part of the base game's Photos feature.
 - **Themes (Settings → Appearance):** Bunnyboard, Midnight, OLED (true black), Light, or match your device, plus an accent colour. On desktop you can also set a background around the chat (gradients or your own picture). Saved per device.
 - **Sync:** close the game, tap Sync, then load the newest slot save in the game. Sync always writes a *new* save; your existing saves are never changed. If the game saved since you started, your chats go on top of its newest save.
 
@@ -63,6 +63,11 @@ node dist/server.js
 ```
 
 Settings can also come from environment variables: `VENUS_GAME_DIR`, `VENUS_PHONE_PORT` (HTTP, default 8790), `VENUS_PHONE_HTTPS_PORT` (default HTTP port + 1), `VENUS_PHONE_PIN`, `VENUS_PHONE_DATA`, and `VENUS_PHONE_HTTPS=1` to turn on HTTPS.
+
+## Credits
+
+- **Venus Dev:** [Venus University](https://venus-dev.itch.io/venus-university), the base game.
+- **naudh1r (Nauhd1r):** [Photo Feature](https://github.com/naudh1r/venus-university/tree/photo-feature), the mod integrated into [Venus Extracurriculars](https://github.com/venus-extracurriculars/build). Venus Phone adapts its DM photo behavior, relationship-based photo tiers and photo prompt logic, including `buildPhotoPrompt`, `allowedPhotoTier`, `settlePhoto` and `photoLines`. These originate from the mod, separately from the base game's Photos feature.
 
 ## License
 

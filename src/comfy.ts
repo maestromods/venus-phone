@@ -1,5 +1,6 @@
-// DM photos through the game's own local ComfyUI and its characterPhoto.json workflow, the same
-// pipeline the in-game Photo Feature uses. ComfyUI only listens on 127.0.0.1.
+// DM photos through the game's local ComfyUI and characterPhoto.json workflow, following
+// naudh1r's Photo Feature mod in Venus Extracurriculars. DM photos are not a base-game feature.
+// ComfyUI only listens on 127.0.0.1.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { promises as fs, openSync } from "node:fs";

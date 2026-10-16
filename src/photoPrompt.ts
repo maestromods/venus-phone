@@ -1,9 +1,11 @@
-// Turns her photo caption into ComfyUI tags, ported from the game's own buildPhotoPrompt
-// (Venus University 0.4.0, Photo Feature). The checkpoint is tag-driven, so the caption's pose,
+// Turns her photo caption into ComfyUI tags, adapted from buildPhotoPrompt in naudh1r's
+// Photo Feature mod in Venus Extracurriculars, not the base game's Photos feature.
+// Source: https://github.com/naudh1r/venus-university/tree/photo-feature
+// The checkpoint is tag-driven, so the caption's pose,
 // framing, selfie type, outfit and what is or isn't covered all have to become tags; passing
 // the sentence through alone gets a picture that ignores most of it.
 //
-// Left out from the game: place-name stripping for its map locations (the prompt already tells
+// Left out from this adaptation of the mod: place-name stripping for its map locations (the prompt already tells
 // her not to name places) and the optional "body details" mod, which is off by default there.
 
 import type { Character } from "./game/types.js";

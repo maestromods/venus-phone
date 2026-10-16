@@ -1,6 +1,7 @@
 // Builds the DM request the same way the game's buildTextingPrompt does: the RITA persona as the
 // system prompt, then READER / CHARACTER / NOW / TEXTING SO FAR / RECENT MESSAGES / YOUR TURN,
-// with the Photo Feature's PHOTOS block, BLOCKING and SUMMARY, answered as one JSON object.
+// with the PHOTOS block adapted from naudh1r's Photo Feature mod in Venus Extracurriculars,
+// plus BLOCKING and SUMMARY, answered as one JSON object. DM photos are a mod feature.
 // Story lore, schedules, weather and location lines are game-engine state this app does not
 // reproduce; the save's memories, summary and thread carry the history.
 
