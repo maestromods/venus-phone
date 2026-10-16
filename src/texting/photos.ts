@@ -1,6 +1,7 @@
 // When a girl may attach a picture to a DM, what the prompt tells her about it, and the check
-// her caption has to pass. Ported from the game's Photo Feature (allowedPhotoTier, settlePhoto,
-// photoLines) so phone chats follow the same rules as in-game ones.
+// her caption has to pass. Adapted from naudh1r's Photo Feature mod in Venus Extracurriculars
+// (allowedPhotoTier, settlePhoto, photoLines), separately from the base game's Photos feature.
+// Source: https://github.com/naudh1r/venus-university/tree/photo-feature
 
 import { affectionFor, dispositionOf } from "../game/relationship.js";
 import { emptyFlags, hasTrait, type Character, type CharInfo, type Flags, type PhotoTier } from "../game/types.js";
