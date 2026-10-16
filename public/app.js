@@ -369,7 +369,9 @@ function renderThread(thread, scroll, held = new Set()) {
       continue;
     }
     const mine = m.sender === "player";
-    const bubble = el("li", { class: `bubble ${mine ? "mine" : "theirs"}`, "data-id": m.id });
+    const side = mine ? "mine" : "theirs";
+    const message = el("li", { class: `message ${side}`, "data-id": m.id });
+    const bubble = el("div", { class: `bubble ${side}` });
     bubble.append(el("span", { class: "sr-only", text: mine ? "You: " : `${thread.name.split(" ")[0]}: ` }));
     if (m.text) bubble.append(document.createTextNode(m.text));
     if (m.photo) bubble.append(photoNode(thread, m));
@@ -389,11 +391,11 @@ function renderThread(thread, scroll, held = new Set()) {
       bubble.classList.add("reacted");
       bubble.append(el("span", { class: "reaction", "aria-label": `${thread.name.split(" ")[0]} reacted ${m.reaction}`, text: m.reaction }));
     }
-    const actions = el("div", { class: "message-actions" });
+    const actions = el("div", { class: "message-actions", role: "group", "aria-label": "Message actions" });
     actions.append(el("button", { type: "button", text: "Delete", disabled: thread.busy || revealing || editingMessage, onclick: () => editMessage(thread, m, "delete") }));
     if (m.canRegenerate) actions.append(el("button", { type: "button", text: "Regenerate reply", disabled: thread.busy || revealing || editingMessage, onclick: () => editMessage(thread, m, "regenerate") }));
-    bubble.append(actions);
-    list.append(bubble);
+    message.append(bubble, actions);
+    list.append(message);
   }
   if (scroll || nearBottom) list.scrollTop = list.scrollHeight;
 }
