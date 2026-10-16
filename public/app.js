@@ -351,7 +351,7 @@ function renderThread(thread, scroll, held = new Set()) {
   if (!revealing) $("typing").hidden = !thread.busy;
 
   const shown = thread.messages.filter((m) => !held.has(m.id));
-  const key = JSON.stringify([thread.busy, held.size > 0, ...shown.map((m) => [m.id, m.text, m.canRegenerate, m.photo?.pending, m.photo?.failed, m.reaction])]);
+  const key = JSON.stringify([thread.busy, revealing, editingMessage, held.size > 0, ...shown.map((m) => [m.id, m.text, m.canRegenerate, m.photo?.pending, m.photo?.failed, m.reaction])]);
   if (key === lastRenderKey) return;
   lastRenderKey = key;
 
@@ -390,8 +390,8 @@ function renderThread(thread, scroll, held = new Set()) {
       bubble.append(el("span", { class: "reaction", "aria-label": `${thread.name.split(" ")[0]} reacted ${m.reaction}`, text: m.reaction }));
     }
     const actions = el("div", { class: "message-actions" });
-    actions.append(el("button", { type: "button", text: "Delete", disabled: thread.busy || revealing, onclick: () => editMessage(thread, m, "delete") }));
-    if (m.canRegenerate) actions.append(el("button", { type: "button", text: "Regenerate reply", disabled: thread.busy || revealing, onclick: () => editMessage(thread, m, "regenerate") }));
+    actions.append(el("button", { type: "button", text: "Delete", disabled: thread.busy || revealing || editingMessage, onclick: () => editMessage(thread, m, "delete") }));
+    if (m.canRegenerate) actions.append(el("button", { type: "button", text: "Regenerate reply", disabled: thread.busy || revealing || editingMessage, onclick: () => editMessage(thread, m, "regenerate") }));
     bubble.append(actions);
     list.append(bubble);
   }
@@ -416,6 +416,7 @@ async function editMessage(thread, message, action) {
     if (openCharId === charId) $("thread-error").textContent = err.message;
   } finally {
     editingMessage = false;
+    lastRenderKey = "";
     if (openCharId === charId) await refreshThread().catch(() => {});
   }
 }
@@ -448,6 +449,7 @@ async function revealReplies(thread, before) {
   } finally {
     revealing = false;
     $("typing").hidden = true;
+    if (openCharId === thread.charId) await refreshThread().catch(() => {});
   }
   if (thread.messages.some((m) => m.photo?.pending)) startPolling();
 }
