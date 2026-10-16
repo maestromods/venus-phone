@@ -9,6 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "test": "npm run build && node --test tests/*.test.mjs",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "npm run build && node dist/server.js"
@@ -18,3 +19,4 @@
     "typescript": "5.7.2"
   }
 }
+

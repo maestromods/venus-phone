@@ -67,3 +67,18 @@ Settings can also come from environment variables: `VENUS_GAME_DIR`, `VENUS_PHON
 ## License
 
 AGPL-3.0-only, matching Venus University and Maestro's community mods. See [LICENSE](LICENSE) for the full license text.
+
+# Message controls
+
+Each message has a **Delete** button. Deletion is saved across restarts and applied to the next synced save, including when the game has created a newer save. It does not undo a character's block or erase game memories, and it leaves photo files on disk.
+
+The last bubble of the latest reply has **Regenerate reply**. It replaces that entire reply; earlier replies cannot be regenerated because later messages depend on them. If that reply included a photo, regeneration also queues a new photo with a fresh filename and render seed, keeping the original scene and request as context. Current photo settings and relationship limits still apply; if a valid replacement cannot be prepared, the original reply is kept. Rendering happens in the background and shows “Photo developing…”; a renderer failure shows “Photo didn't come through” and can be retried with Regenerate reply. Old photo files remain on disk. Text-only replies stay text-only, and photos you sent are represented by their stored descriptions. Blocked chats cannot be regenerated.
+
+Conversation prompts favor ongoing, natural back-and-forth without forced questions or routine goodnight/goodbye sign-offs. The save's day/night label is not a bedtime deadline. Characters can still refuse requests, set boundaries, and block for behavior that gives them a reason to cut contact. Existing emoji reactions remain visible while new reply bubbles arrive.
+
+Editing clears the running chat recap to avoid carrying removed messages into future prompts. Future replies still use the surviving recent messages and the character's game memories, but details held only in the old recap will be forgotten.
+
+Hidden unblock gesture: open a blocked contact's chat and click or tap her profile picture in the header **three times within three seconds**. She sends an in-character message deciding to reopen contact, then you can text again. The gesture does nothing for an unblocked contact. A failed AI request leaves her blocked so you can retry. The unblock survives restarts and carries into the next synced game save; it does not erase history or prevent a later block.
+
+Run `npm test` to build and check deletion, regeneration, blocking/unblocking, persistence, profile gestures and edit guards with a mocked AI provider.
+

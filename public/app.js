@@ -109,7 +109,10 @@ function show(name) {
   document.body.classList.toggle("in-thread", name === "thread");
   window.scrollTo(0, 0);
   if (typeof fitViewport === "function") fitViewport();
-  if (name !== "thread") stopPolling();
+  if (name !== "thread") {
+    stopPolling();
+    profileClicks = [];
+  }
   const heading = $(`view-${name}`).querySelector("h1");
   if (heading) {
     heading.tabIndex = -1;
@@ -304,7 +307,51 @@ $("sync-btn").addEventListener("click", async () => {
 
 // ---- Thread ---------------------------------------------------------------------------------------
 
+// ---- Hidden profile gesture ----------------------------------------------------------------------
+let profileClicks = [];
+let threadBlocked = false;
+let threadBusy = false;
+let unblockingCharId = null;
+
+$("thread-profile").addEventListener("click", async () => {
+  if (current !== "thread" || !openCharId || !threadBlocked || threadBusy || revealing || editingMessage || unblockingCharId) {
+    profileClicks = [];
+    return;
+  }
+  const now = performance.now();
+  profileClicks = profileClicks.filter((at) => now - at <= 3000);
+  profileClicks.push(now);
+  if (profileClicks.length < 3) return;
+  profileClicks = [];
+  const charId = openCharId;
+  const before = new Set([...$("messages").querySelectorAll("[data-id]")].map((node) => node.dataset.id));
+  unblockingCharId = charId;
+  $("thread-profile").disabled = true;
+  $("thread-error").textContent = "";
+  $("typing").hidden = false;
+  for (const button of document.querySelectorAll(".message-actions button")) button.disabled = true;
+  try {
+    const updated = await api(`/api/chats/${charId}/unblock`, { body: {} });
+    if (current === "thread" && openCharId === charId) await revealReplies(updated, before);
+  } catch (err) {
+    if (current === "thread" && openCharId === charId) $("thread-error").textContent = err.message;
+  } finally {
+    unblockingCharId = null;
+    lastRenderKey = "";
+    if (current === "thread") {
+      if (openCharId === charId) $("typing").hidden = true;
+      await refreshThread().catch(() => {});
+      $("thread-profile").disabled = threadBusy || revealing || editingMessage;
+    }
+  }
+});
+
+// ---- Thread loading ------------------------------------------------------------------------------
 async function openThread(charId) {
+  profileClicks = [];
+  threadBlocked = false;
+  threadBusy = false;
+  $("thread-profile").disabled = true;
   if (openCharId !== charId) {
     clearAttachment();
     // A half-typed message belongs to the chat it was typed in.
@@ -326,8 +373,9 @@ async function openThread(charId) {
 
 async function refreshThread(scroll = false) {
   if (!openCharId) return;
-  const thread = await api(`/api/chats/${openCharId}`);
-  if (revealing) return;
+  const charId = openCharId;
+  const thread = await api(`/api/chats/${charId}`);
+  if (revealing || charId !== openCharId) return;
   renderThread(thread, scroll);
   const waiting = thread.messages.some((m) => m.photo?.pending);
   if (waiting) startPolling();
@@ -335,23 +383,29 @@ async function refreshThread(scroll = false) {
 }
 
 function renderThread(thread, scroll, held = new Set()) {
+  threadBlocked = thread.blocked;
+  threadBusy = thread.busy;
+  const unblocking = unblockingCharId === thread.charId;
+  $("thread-profile").disabled = thread.busy || revealing || editingMessage || Boolean(unblockingCharId);
+  $("thread-profile").setAttribute("aria-label", `${thread.name}'s profile picture`);
+  if (!thread.blocked || thread.busy) profileClicks = [];
   $("thread-title").textContent = thread.name;
   if (thread.incoming) {
     $("incoming-every").value = String(thread.incoming.everyMinutes);
     $("incoming-max").value = String(thread.incoming.maxUnanswered);
     $("incoming-btn").classList.toggle("on", thread.incoming.everyMinutes !== 0);
   }
-  const composerOff = thread.blocked;
+  const composerOff = thread.blocked || unblocking;
   $("draft").disabled = composerOff;
   $("attach-btn").disabled = composerOff;
   $("composer").querySelector("button[type=submit]").disabled = composerOff;
   $("draft").placeholder = thread.blocked ? `${thread.name.split(" ")[0]} has you blocked` : "Message";
 
   // While she is still replying (opened mid-reply), show her typing.
-  if (!revealing) $("typing").hidden = !thread.busy;
+  if (!revealing) $("typing").hidden = !thread.busy && !unblocking;
 
   const shown = thread.messages.filter((m) => !held.has(m.id));
-  const key = JSON.stringify([held.size > 0, ...shown.map((m) => [m.id, m.photo?.pending, m.photo?.failed, m.reaction])]);
+  const key = JSON.stringify([thread.busy, revealing, editingMessage, unblocking, held.size > 0, ...shown.map((m) => [m.id, m.text, m.canRegenerate, m.photo?.pending, m.photo?.failed, m.reaction])]);
   if (key === lastRenderKey) return;
   lastRenderKey = key;
 
@@ -369,7 +423,9 @@ function renderThread(thread, scroll, held = new Set()) {
       continue;
     }
     const mine = m.sender === "player";
-    const bubble = el("li", { class: `bubble ${mine ? "mine" : "theirs"}`, "data-id": m.id });
+    const side = mine ? "mine" : "theirs";
+    const message = el("li", { class: `message ${side}`, "data-id": m.id });
+    const bubble = el("div", { class: `bubble ${side}` });
     bubble.append(el("span", { class: "sr-only", text: mine ? "You: " : `${thread.name.split(" ")[0]}: ` }));
     if (m.text) bubble.append(document.createTextNode(m.text));
     if (m.photo) bubble.append(photoNode(thread, m));
@@ -384,14 +440,41 @@ function renderThread(thread, scroll, held = new Set()) {
         ),
       );
     }
-    // Her reaction shows once her reply has landed, like a tapback.
-    if (m.reaction && !held.size) {
+    // Existing tapbacks stay visible while new replies arrive.
+    if (m.reaction) {
       bubble.classList.add("reacted");
       bubble.append(el("span", { class: "reaction", "aria-label": `${thread.name.split(" ")[0]} reacted ${m.reaction}`, text: m.reaction }));
     }
-    list.append(bubble);
+    const actions = el("div", { class: "message-actions", role: "group", "aria-label": "Message actions" });
+    actions.append(el("button", { type: "button", text: "Delete", disabled: thread.busy || revealing || editingMessage || unblocking, onclick: () => editMessage(thread, m, "delete") }));
+    if (m.canRegenerate) actions.append(el("button", { type: "button", text: "Regenerate reply", disabled: thread.busy || revealing || editingMessage || unblocking, onclick: () => editMessage(thread, m, "regenerate") }));
+    message.append(bubble, actions);
+    list.append(message);
   }
   if (scroll || nearBottom) list.scrollTop = list.scrollHeight;
+}
+
+let editingMessage = false;
+async function editMessage(thread, message, action) {
+  if (editingMessage || revealing) return;
+  if (action === "delete" && !confirm("Delete this message? It will also be removed from the next synced save. Deleting a message does not undo a block.")) return;
+  const charId = thread.charId;
+  editingMessage = true;
+  $("thread-error").textContent = "";
+  for (const button of document.querySelectorAll(".message-actions button")) button.disabled = true;
+  try {
+    const updated = await api(`/api/chats/${charId}/${action}`, { body: { id: message.id } });
+    if (openCharId === charId) {
+      lastRenderKey = "";
+      renderThread(updated, false);
+    }
+  } catch (err) {
+    if (openCharId === charId) $("thread-error").textContent = err.message;
+  } finally {
+    editingMessage = false;
+    lastRenderKey = "";
+    if (openCharId === charId) await refreshThread().catch(() => {});
+  }
 }
 
 let revealing = false;
@@ -422,6 +505,7 @@ async function revealReplies(thread, before) {
   } finally {
     revealing = false;
     $("typing").hidden = true;
+    if (openCharId === thread.charId) await refreshThread().catch(() => {});
   }
   if (thread.messages.some((m) => m.photo?.pending)) startPolling();
 }
@@ -812,3 +896,4 @@ for (const button of document.querySelectorAll("[data-go]")) {
 }
 
 boot().catch(() => show("lock"));
+

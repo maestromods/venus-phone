@@ -30,6 +30,7 @@ import type { PhotoTier } from "./game/types.js";
 import {
   buildTextingPrompt,
   INCOMING_DIRECTION,
+  UNBLOCK_DIRECTION,
   fitBubbles,
   parseTextingReply,
   pickBubbleCount,
@@ -49,12 +50,16 @@ const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
 const UPLOAD_FILE = /^[0-9a-f-]{36}\.(?:jpg|png|webp)$/;
 
 interface Delta {
+  /** Message tombstones, also applied when syncing onto a newer save. */
+  deleted?: Record<string, string[]>;
   /** New bubbles per girl, in order. */
   added: Record<string, ChatMessage[]>;
   /** Her latest running recap of the thread. */
   summaries: Record<string, string>;
   /** Girls who blocked the reader over the phone. */
   blocked: string[];
+  /** Explicit unblocks, including blocks inherited from the game's save. */
+  unblocked?: string[];
   /** Her texts you haven't opened yet, per girl; carried into the game's unread badge on sync. */
   unread?: Record<string, number>;
 }
@@ -100,6 +105,7 @@ export class Phone {
   constructor(private files: GameFiles) {}
 
   setGameFiles(files: GameFiles): void {
+    if (this.inFlight.size) throw new PhoneError("Wait for replies before changing the game folder.", 409);
     this.files = files;
     this.state = null;
     this.base = null;
@@ -157,7 +163,8 @@ export class Phone {
 
   pendingCount(): number {
     if (!this.state) return 0;
-    return Object.values(this.state.delta.added).reduce((n, list) => n + list.length, 0);
+    return Object.values(this.state.delta.added).reduce((n, list) => n + list.length, 0)
+      + Object.values(this.state.delta.deleted ?? {}).reduce((n, list) => n + list.length, 0);
   }
 
   unreadTotal(): number {
@@ -187,6 +194,7 @@ export class Phone {
 
   /** Starts texting from a save. Refuses to drop unsynced chats unless told to. */
   async choose(playthroughId: string, saveId: string, discard: boolean): Promise<void> {
+    if (this.inFlight.size) throw new PhoneError("Wait for replies before changing saves.", 409);
     if (this.pendingCount() > 0 && !discard) {
       throw new PhoneError("You have chats that are not synced yet. Sync first, or choose again to discard them.", 409);
     }
@@ -278,6 +286,7 @@ export class Phone {
         const mine = this.readerPhotoOf(m);
         return {
           id: m.id,
+          canRegenerate: m.id === this.regenerationTarget(messages)?.id && !(save.charInfo[charId]?.flags?.blocked),
           sender: m.sender,
           text: displayText(m),
           stamp: formatDateBanner(m.date, m.time, season),
@@ -301,6 +310,134 @@ export class Phone {
     const character = this.characters.get(charId);
     if (!character) throw new PhoneError("Unknown contact.", 404);
     return character;
+  }
+
+  /** Only the latest reply can be replaced without invalidating later conversation. */
+  private regenerationTarget(messages: ChatMessage[]): ChatMessage | undefined {
+    const last = messages[messages.length - 1];
+    return last?.sender === "contact" ? last : undefined;
+  }
+
+  async deleteMessage(charId: string, id: string) {
+    this.characterOf(charId);
+    const { state } = this.require();
+    if (this.inFlight.has(charId)) throw new PhoneError("Wait for the reply before editing messages.", 409);
+    const message = this.view().bunnyboard.conversations[charId]?.messages.find((m) => m.id === id);
+    if (!message) throw new PhoneError("Message not found.", 404);
+    if (message.sender === "system") throw new PhoneError("System notices cannot be deleted.");
+    this.removeMessages(charId, [id]);
+    await this.persist();
+    return this.thread(charId);
+  }
+
+  private removeMessages(charId: string, ids: string[]): void {
+    const { state } = this.require();
+    const deleted = (state.delta.deleted ??= {});
+    deleted[charId] = [...new Set([...(deleted[charId] ?? []), ...ids])];
+    state.delta.added[charId] = (state.delta.added[charId] ?? []).filter((m) => !ids.includes(m.id));
+    // A recap may contain removed text. Clear it so future prompts use the surviving messages.
+    state.delta.summaries[charId] = "";
+    if (state.unanswered) delete state.unanswered[charId];
+    if (state.delta.unread) delete state.delta.unread[charId];
+    this.notices = this.notices.filter((n) => n.charId !== charId);
+  }
+
+  async regenerate(charId: string, id: string, llm: LlmSettings, photoSwitches: PhotoSwitches = { enabled: false, explicit: false }) {
+    const { state } = this.require();
+    const character = this.characterOf(charId);
+    const save = this.view();
+    this.assertCanText(charId, save, character);
+    // Keep the replaced photo's filename reserved, even if its old render is still pending.
+    const originalSave = structuredClone(save);
+    const conversation = save.bunnyboard.conversations[charId];
+    if (!conversation || this.regenerationTarget(conversation.messages)?.id !== id) {
+      throw new PhoneError("Only the latest reply can be regenerated.", 409);
+    }
+    const messages = conversation.messages;
+    const last = messages[messages.length - 1]!;
+    let start = messages.length - 1;
+    if (last.exPhoneTurn) {
+      while (start > 0 && messages[start - 1]?.exPhoneTurn === last.exPhoneTurn) start--;
+    } else if (last.exIncomingTurn) {
+      while (start > 0 && messages[start - 1]?.exIncomingTurn === last.exIncomingTurn) start--;
+    } else {
+      while (start > 0 && messages[start - 1]?.sender === "contact" && !messages[start - 1]?.exIncomingTurn) start--;
+    }
+    const removed = messages.slice(start);
+    const originalPhoto = [...removed].reverse().find((m) => m.photo)?.photo;
+    let allowedPhoto: PhotoTier = "none";
+    if (originalPhoto) {
+      if (!photoSwitches.enabled) throw new PhoneError("Enable photos in Settings to regenerate this photo reply. The original reply has been kept.");
+      const possible = allowedPhotoTier(character, save.charInfo[charId], save.date, photoSwitches);
+      const originalAllowed = settlePhoto({ sendPhoto: true, photoPrompt: originalPhoto.scene, stated: originalPhoto.tier, allowed: possible });
+      if (!originalAllowed.send) throw new PhoneError("This photo is outside the current photo settings or relationship limits. The original reply has been kept.");
+      allowedPhoto = originalAllowed.tier;
+    }
+    conversation.messages = messages.slice(0, start);
+    conversation.summary = null;
+    const sent = conversation.messages[conversation.messages.length - 1];
+    const incoming = Boolean(last.exIncomingTurn) || sent?.sender !== "player";
+    if (!incoming) conversation.messages.pop();
+    const text = !incoming && sent ? sent.text + (this.readerPhotoOf(sent) ? ` ${readerPhotoNote(this.readerPhotoOf(sent)!.scene)}` : "") : "";
+    const photoShot = shotFromAsk(text) ?? (originalPhoto ? shotFromAsk(originalPhoto.scene) : null) ?? pickShot();
+    const bubbles = pickBubbleCount(text);
+    const request = buildTextingPrompt(
+      { ...this.promptContext(save, character, allowedPhoto, Boolean(originalPhoto)), bubbles, photoShot, replacementPhoto: originalPhoto },
+      text, undefined, incoming ? INCOMING_DIRECTION : undefined,
+    );
+    request.user += "\nREGENERATION\nWrite a fresh alternative with different wording and a different conversational beat. This replaces the previous reply. Do not mention regeneration.";
+    this.inFlight.add(charId);
+    try {
+      const initial = cleanReply(parseTextingReply(await completeStructured(llm, request)), allowedPhoto);
+      initial.messages = fitBubbles(initial.messages, bubbles);
+      initial.photoPrompt = captionForShot(initial.photoPrompt, photoShot);
+      const { reply } = originalPhoto
+        ? await this.keepPhotoPromise(llm, request, character, save, initial, allowedPhoto, allowedPhoto, photoShot, true)
+        : { reply: initial };
+      if (!reply.messages.length) throw new PhoneError("No replacement was returned. Try again.", 502);
+      if (originalPhoto && !reply.blocked && !settlePhoto({
+        sendPhoto: reply.sendPhoto, photoPrompt: reply.photoPrompt,
+        stated: isPhotoTier(reply.photoTier) ? reply.photoTier : undefined, allowed: allowedPhoto,
+      }).send) throw new PhoneError("No replacement photo was returned. Your original reply is still here; try regenerating again.", 502);
+      if (this.state !== state) throw new PhoneError("The selected save changed. Try again.", 409);
+      this.removeMessages(charId, removed.map((m) => m.id));
+      if (!incoming && sent) {
+        // Drop the old reaction without replacing the player's message identity.
+        const original = state.delta.added[charId]?.find((m) => m.id === sent.id);
+        if (original) delete original.exReaction;
+      }
+      await this.file(charId, character, originalSave, [], reply, allowedPhoto, incoming);
+      await this.markRead(charId);
+    } finally {
+      this.inFlight.delete(charId);
+    }
+    return this.thread(charId);
+  }
+
+  /** The hidden profile gesture reopens contact only after her message is ready. */
+  async unblock(charId: string, llm: LlmSettings) {
+    const { state } = this.require();
+    const character = this.characterOf(charId);
+    const save = this.view();
+    const flags = save.charInfo[charId]?.flags ?? emptyFlags();
+    if (!flags.gaveContactInfo) throw new PhoneError(`${character.firstName} hasn't given you her number.`, 403);
+    if (this.inFlight.has(charId)) throw new PhoneError(`${character.firstName} is still replying.`, 409);
+    if (!flags.blocked) throw new PhoneError(`${character.firstName} hasn't blocked you.`, 409);
+    const request = buildTextingPrompt(
+      { ...this.promptContext(save, character, "none", false), bubbles: 1, unblocking: true },
+      "", undefined, UNBLOCK_DIRECTION,
+    );
+    this.inFlight.add(charId);
+    try {
+      const reply = cleanReply(parseTextingReply(await completeStructured(llm, request)), "none");
+      if (!reply.messages.length || reply.blocked) throw new PhoneError("No unblock message was returned. Try the profile gesture again.", 502);
+      if (this.state !== state) throw new PhoneError("The selected save changed. Try again.", 409);
+      reply.messages = fitBubbles(reply.messages, 1);
+      await this.file(charId, character, save, [], reply, "none", true, true);
+    } finally {
+      this.inFlight.delete(charId);
+    }
+    return this.thread(charId);
   }
 
   private assertCanText(charId: string, save: SaveFile, character: Character): void {
@@ -531,24 +668,40 @@ export class Phone {
     reply: ReturnType<typeof parseTextingReply>,
     allowedPhoto: ReturnType<typeof allowedPhotoTier>,
     unread: boolean,
+    unblocking = false,
   ): Promise<ChatMessage[]> {
     const { state } = this.require();
     const stamp = { date: save.date, time: save.time };
     // Texts she starts carry the same marker the game's own incoming texts do, plus a turn id so
     // several openers in a row can be told apart.
     const turn = unread ? randomUUID() : undefined;
+    const phoneTurn = randomUUID();
     const replies: ChatMessage[] = reply.messages.map((t) => ({
       id: randomUUID(),
       sender: "contact",
+      exPhoneTurn: phoneTurn,
       text: t,
       ...stamp,
       ...(unread ? { exReplyTo: "incoming-texts:incoming", exIncomingTurn: turn } : {}),
     }));
-    const added = [...sent, ...replies];
+    const added: ChatMessage[] = [
+      ...sent,
+      ...(unblocking ? [{ id: randomUUID(), sender: "system" as const, text: `${character.firstName} unblocked you.`, ...stamp }] : []),
+      ...replies,
+    ];
     if (reply.blocked) added.push({ id: randomUUID(), sender: "system", text: `${character.firstName} blocked you.`, ...stamp });
     (state.delta.added[charId] ??= []).push(...added);
     if (reply.summary) state.delta.summaries[charId] = reply.summary;
-    if (reply.blocked && !state.delta.blocked.includes(charId)) state.delta.blocked.push(charId);
+    if (unblocking) {
+      state.delta.blocked = state.delta.blocked.filter((id) => id !== charId);
+      const unblocked = (state.delta.unblocked ??= []);
+      if (!unblocked.includes(charId)) unblocked.push(charId);
+      if (state.unanswered) delete state.unanswered[charId];
+      if (!reply.summary) state.delta.summaries[charId] = "";
+    } else if (reply.blocked) {
+      if (!state.delta.blocked.includes(charId)) state.delta.blocked.push(charId);
+      state.delta.unblocked = state.delta.unblocked?.filter((id) => id !== charId);
+    }
     if (unread) {
       state.delta.unread ??= {};
       state.delta.unread[charId] = (state.delta.unread[charId] ?? 0) + replies.length;
@@ -672,6 +825,7 @@ export class Phone {
    */
   async sync(): Promise<{ saveId: string; rebased: boolean; messages: number }> {
     const { state } = this.require();
+    if (this.inFlight.size) throw new PhoneError("Wait for replies before syncing.", 409);
     if (await isGameRunning()) {
       throw new PhoneError("Close Venus University before syncing; it would overwrite the synced save with its own autosave.", 409);
     }
@@ -840,6 +994,14 @@ function checkedImage(image: TextingImage): Buffer {
 export function applyDelta(base: SaveFile, delta: Delta, forGame: boolean): SaveFile {
   const save: SaveFile = structuredClone(base);
   save.bunnyboard.conversations ??= {};
+  for (const [charId, ids] of Object.entries(delta.deleted ?? {})) {
+    const conversation = save.bunnyboard.conversations[charId];
+    if (conversation) {
+      const removed = conversation.messages.filter((m) => ids.includes(m.id) && m.sender === "contact").length;
+      conversation.messages = conversation.messages.filter((m) => !ids.includes(m.id));
+      conversation.unread = Math.max(0, (conversation.unread ?? 0) - removed);
+    }
+  }
   for (const [charId, added] of Object.entries(delta.added)) {
     const conversation: Conversation = save.bunnyboard.conversations[charId] ?? { charId, messages: [], unread: 0, summary: null };
     const have = new Set(conversation.messages.map((m) => m.id));
@@ -862,9 +1024,14 @@ export function applyDelta(base: SaveFile, delta: Delta, forGame: boolean): Save
     const conversation = save.bunnyboard.conversations[charId];
     if (conversation) conversation.summary = summary;
   }
+  for (const charId of delta.unblocked ?? []) {
+    const info = save.charInfo[charId];
+    if (info) info.flags = { ...(info.flags ?? emptyFlags()), blocked: false };
+  }
   for (const charId of delta.blocked) {
     const info = save.charInfo[charId];
     if (info) info.flags = { ...(info.flags ?? emptyFlags()), blocked: true };
   }
   return save;
 }
+
