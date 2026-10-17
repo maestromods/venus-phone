@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#1b1430">
   <meta name="referrer" content="no-referrer">
-  <title>Bunnyboard</title>
+  <title>Bunnyboard · Voice experiment</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/app.css?v=10">
+  <link rel="stylesheet" href="/app.css?v=11">
 </head>
 <body>
   <div id="app" class="app">
@@ -81,6 +81,7 @@
           <img id="thread-avatar" class="avatar" alt="" width="36" height="36" draggable="false">
         </button>
         <h1 id="thread-title"></h1>
+        <button type="button" id="call-btn" class="icon-btn" aria-label="Start a voice call">☎</button>
         <button type="button" id="incoming-btn" class="icon-btn" aria-label="Texting settings for this chat" aria-expanded="false" aria-controls="incoming-panel">⏱</button>
       </header>
       <form id="incoming-panel" class="incoming-panel" hidden>
@@ -128,6 +129,7 @@
       <header class="bar">
         <button type="button" class="icon-btn" id="settings-back" aria-label="Back">‹</button>
         <h1 id="settings-title">Settings</h1>
+        <button type="button" id="voice-studio" class="small">Voice studio</button>
       </header>
       <form id="appearance-form" class="stack pad" aria-describedby="appearance-note">
         <h2>Appearance</h2>
@@ -244,7 +246,73 @@
   <div id="toast" class="toast" hidden role="status" aria-live="polite">
     <button type="button" id="toast-open" class="toast-btn"></button>
   </div>
-  <script src="/app.js?v=9" type="module"></script>
+  <dialog id="voice-panel" class="voice-panel" aria-labelledby="voice-title">
+    <div id="voice-call-view" class="voice-call-view">
+      <header class="call-topbar">
+        <button type="button" id="voice-close" class="call-icon" aria-label="Close call panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
+        <span class="call-eyebrow">VOICE CALL <span class="call-beta">BETA</span></span>
+        <button type="button" id="voice-options-open" class="call-icon" aria-label="Call options" aria-controls="voice-options" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+      </header>
+      <div class="call-hero">
+        <div class="call-portrait"><span id="voice-initials" aria-hidden="true"></span><img id="voice-avatar" alt="" hidden><span class="call-activity" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span></div>
+        <h2 id="voice-title">Voice call</h2>
+        <div id="voice-timer" class="call-timer" aria-label="Call duration">Ready to call</div>
+        <p id="voice-state" class="call-status" role="status" aria-live="polite"></p>
+      </div>
+      <div class="call-bottom">
+        <p id="voice-caption" class="call-caption"></p>
+        <p id="voice-error" class="error" role="alert"></p>
+        <form id="voice-form" class="call-compose">
+          <label for="voice-draft" class="sr-only">Your reply</label><textarea id="voice-draft" rows="2" maxlength="2000" placeholder="Type here. She’ll reply aloud." disabled></textarea>
+          <button id="voice-send" type="submit" aria-label="Send reply" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19 0-14m-6 6 6-6 6 6"/></svg></button>
+        </form>
+        <div class="call-tools">
+          <button id="voice-microphone" type="button" aria-pressed="false"><span class="call-tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></span><span>Microphone</span></button>
+          <button id="voice-keyboard" type="button" aria-expanded="true" aria-controls="voice-form"><span class="call-tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M7 15h10"/></svg></span><span>Keyboard</span></button>
+          <button id="voice-interrupt" type="button" disabled><span class="call-tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span><span>Interrupt</span></button>
+          <button id="voice-transcript-open" type="button" aria-controls="voice-history" aria-expanded="false"><span class="call-tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a3 3 0 0 1-3 3H9l-6 4V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3zM7 8h10M7 12h7"/></svg></span><span>Transcript</span></button>
+        </div>
+        <div class="call-primary-actions">
+          <button id="voice-start" type="button" class="call-connect"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a1 1 0 0 1 1 .8l.7 3.5a1 1 0 0 1-.3 1L7.8 10a16 16 0 0 0 6.2 6.2l1.7-1.7a1 1 0 0 1 1-.3l3.5.7a1 1 0 0 1 .8 1z"/></svg><span>Start call</span></button>
+          <button id="voice-end" type="button" class="call-hangup" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15v-4c5-5 13-5 18 0v4h-5v-4M8 11v4H3"/></svg><span>End call</span></button>
+        </div>
+        <p class="call-footnote" id="voice-mode-hint">You type. She talks.</p>
+        <meter id="voice-mic-level" min="0" max="1" value="0" aria-label="Microphone level" hidden></meter>
+        <p class="call-footnote" id="voice-connection-help" hidden>Microphone requires HTTPS. On the PC, stop this build and run start-voice-https.cmd, then follow the certificate setup page on your phone.</p>
+      </div>
+    </div>
+    <section id="voice-options" class="call-sheet" aria-labelledby="voice-options-title" hidden>
+      <header class="call-sheet-header"><button type="button" id="voice-options-back" class="call-icon" aria-label="Back to call"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h2 id="voice-options-title">Call options</h2></header>
+      <div class="call-sheet-body stack">
+        <p id="voice-options-error" class="error" role="alert"></p>
+        <div class="call-setting stack"><h3>Local voice</h3><p class="muted">Speech runs on this PC. Your selected AI service generates the dialogue.</p><button id="voice-load" type="button">Load voice models</button><span id="voice-model-status" class="muted" role="status"></span></div>
+        <div class="call-setting stack"><label for="voice-choice">Her voice</label><select id="voice-choice"><option value="default">Chatterbox default voice</option></select><p class="muted">Choose a voice before starting a call.</p>
+          <details><summary>Voice preview &amp; custom voices</summary><div class="stack voice-details">
+            <label for="voice-preview-text">Preview dialogue</label><textarea id="voice-preview-text" maxlength="300" rows="3">Hey… um, I was just thinking about you. [chuckle] How’s your day going?</textarea>
+            <button id="voice-preview" type="button">Play voice preview</button><p id="voice-preview-status" class="muted" role="status"></p>
+            <label for="voice-reference">Add a voice reference (WAV, 6–30 seconds)</label><input id="voice-reference" type="file" accept=".wav,audio/wav">
+            <p class="muted">Use a voice sample you have permission to use. Voice choices are remembered for each contact on this device.</p>
+          </div></details>
+        </div>
+        <div class="call-setting stack"><label for="voice-mode">Your side of the call</label><select id="voice-mode"><option value="type">Type to talk — she replies aloud</option><option value="microphone">Microphone — pause to send</option></select>
+          <details><summary>Microphone settings</summary><div class="stack voice-details">
+            <label class="call-check"><input id="voice-barge" type="checkbox"> Interrupt her when I speak (use headphones)</label>
+            <label for="voice-threshold">Microphone threshold</label><select id="voice-threshold"><option value="0.012">Sensitive</option><option value="0.025" selected>Normal</option><option value="0.05">Noisy room</option></select>
+            <p class="muted">Microphone access requires localhost on the PC or trusted HTTPS on your phone.</p>
+          </div></details>
+        </div>
+        <p class="muted">Sending a typed reply interrupts her. Completed speech is saved in your chat. Calls reply in turns, so a short pause between replies is normal.</p>
+      </div>
+    </section>
+    <section id="voice-history" class="call-sheet" aria-labelledby="voice-history-title" hidden>
+      <header class="call-sheet-header"><button type="button" id="voice-history-back" class="call-icon" aria-label="Back to call"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h2 id="voice-history-title">Call transcript</h2></header>
+      <p class="muted call-history-note">Completed speech is saved in your chat.</p>
+      <p id="voice-transcript-empty" class="call-empty">Your conversation will appear here.</p>
+      <div id="voice-transcript" class="voice-transcript" role="log" aria-label="Call transcript"></div>
+      <button id="voice-history-end" type="button" class="call-sheet-end" hidden>End call</button>
+    </section>
+  </dialog>
+  <script src="/app.js?v=voice1" type="module"></script>
 </body>
 </html>
 

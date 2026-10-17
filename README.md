@@ -59,6 +59,10 @@ This is careful home-use hardening, not a professional security audit.
 - Hangout invites in texts don't schedule anything in the game.
 - The prompt follows the game's texting prompt but leaves out some live game state (schedules, weather, location).
 
+## Experimental voice calls
+
+See [VOICE-EXPERIMENT.md](VOICE-EXPERIMENT.md) for local Chatterbox speech, Whisper transcription, typed replies with spoken responses, voice references, and iPhone HTTPS setup. Run `setup-voice.cmd` once to install the isolated speech environment, then `start-voice.cmd` (or `start-voice-https.cmd` for a phone microphone). Microphone access on a phone requires a trusted HTTPS connection.
+
 ## Development
 
 ```

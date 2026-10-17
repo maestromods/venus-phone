@@ -51,7 +51,7 @@ export async function loadConfig(): Promise<AppConfig> {
   await fs.mkdir(APP_DATA_DIR, { recursive: true });
   try {
     const raw = JSON.parse(await fs.readFile(CONFIG_PATH, "utf8")) as Partial<AppConfig>;
-    return { ...DEFAULTS, ...raw };
+    return { ...DEFAULTS, ...raw, ...(process.env.VENUS_PHONE_PORT ? { port: Number(process.env.VENUS_PHONE_PORT) } : {}) };
   } catch {
     return { ...DEFAULTS };
   }
