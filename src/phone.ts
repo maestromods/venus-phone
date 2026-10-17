@@ -11,6 +11,7 @@ import { buildPhotoPrompt } from "./photoPrompt.js";
 import { APP_DATA_DIR, writeJsonAtomic } from "./config.js";
 import { formatDateBanner, seasonOfTerm, type Season } from "./game/calendar.js";
 import { GameFiles, isGameRunning, isPhotoFile, SAFE_CHAR_ID, SAFE_NUMERIC_ID } from "./game/files.js";
+import { semesterOf } from "./game/semesters.js";
 import { emptyFlags, type Character, type ChatMessage, type ChatPhoto, type Conversation, type PlaythroughRecord, type SaveFile } from "./game/types.js";
 import { completeStructured, type LlmSettings } from "./llm.js";
 import { stripImageMetadata } from "./metadata.js";
@@ -151,7 +152,7 @@ export class Phone {
     const base = await this.files.readSave(state.playthroughId, state.baseSaveId);
     const record = await this.files.readRecord(state.playthroughId);
     const characters = new Map<string, Character>();
-    for (const charId of record.chars) {
+    for (const charId of semesterOf(record, base.semester).chars) {
       const character = await this.files.readCharacter(charId);
       if (character) characters.set(charId, character);
     }
@@ -205,7 +206,7 @@ export class Phone {
   }
 
   private season(): Season {
-    return seasonOfTerm(this.record?.term?.index ?? 0);
+    return seasonOfTerm(this.record ? semesterOf(this.record, this.base?.semester).index : 0);
   }
 
   private require(): { state: SessionState; base: SaveFile; record: PlaythroughRecord } {
@@ -215,21 +216,26 @@ export class Phone {
 
   /** The picked save with the delta laid over it, as the app shows it. */
   private view(): SaveFile {
-    const { base, state } = this.require();
-    return applyDelta(base, state.delta, false);
+    const { base, state, record } = this.require();
+    const view = applyDelta(base, state.delta, false);
+    // Profiles belong to the record, not the save. Join them only for display and prompts.
+    for (const [id, profile] of Object.entries(semesterOf(record, base.semester).profiles)) {
+      if (view.charInfo[id]) view.charInfo[id] = { ...profile, ...view.charInfo[id] };
+    }
+    return view;
   }
 
   /** Girls you can text in this save. */
   contactIds(): string[] {
     if (!this.state || !this.base || !this.record) return [];
     const save = this.view();
-    return this.record.chars.filter((charId) => this.characters.has(charId) && save.charInfo[charId]?.flags?.gaveContactInfo);
+    return semesterOf(this.record, this.base.semester).chars.filter((charId) => this.characters.has(charId) && save.charInfo[charId]?.flags?.gaveContactInfo);
   }
 
   contacts() {
     const save = this.view();
     const { record, state } = this.require();
-    return record.chars
+    return semesterOf(record, save.semester).chars
       .map((charId) => {
         const character = this.characters.get(charId);
         const info = save.charInfo[charId];
@@ -652,7 +658,7 @@ export class Phone {
       save,
       character,
       roster: [...this.characters.values()].filter((c) => c.charId !== character.charId),
-      player: { firstName: record.playerFirstName, lastName: record.playerLastName, termIndex: record.term?.index ?? 0 },
+      player: { firstName: record.playerFirstName, lastName: record.playerLastName, termIndex: semesterOf(record, save.semester).index },
       season: this.season(),
       allowedPhoto,
       photoRequested: requested,
@@ -824,7 +830,7 @@ export class Phone {
    * progress is lost either way.
    */
   async sync(): Promise<{ saveId: string; rebased: boolean; messages: number }> {
-    const { state } = this.require();
+    const { state, base: selected } = this.require();
     if (this.inFlight.size) throw new PhoneError("Wait for replies before syncing.", 409);
     if (await isGameRunning()) {
       throw new PhoneError("Close Venus University before syncing; it would overwrite the synced save with its own autosave.", 409);
@@ -837,6 +843,11 @@ export class Phone {
     const rebased = Boolean(newest && newest.saveId !== state.baseSaveId && newest.saveDate > state.baseSaveDate);
     const baseId = rebased && newest ? newest.saveId : state.baseSaveId;
     const base = await this.files.readSave(state.playthroughId, baseId);
+    if (base.semester !== selected.semester) {
+      throw new PhoneError("The newest save is in a different semester. Your chats are still kept here; choose a save in that semester to start a new phone session. Sync cannot move chats between semesters.", 409);
+    }
+    // Validate the current record before writing anything.
+    semesterOf(await this.files.readRecord(state.playthroughId), base.semester);
     const merged = applyDelta(base, state.delta, true);
     const saveId = await this.files.writeNewSlotSave(state.playthroughId, merged);
 

@@ -7,11 +7,12 @@ import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { formatDateBanner, seasonOfTerm } from "./calendar.js";
+import { semesterOf } from "./semesters.js";
 import type { Character, PlaythroughRecord, SaveFile } from "./types.js";
 
 export const SAFE_NUMERIC_ID = /^[0-9]{1,20}$/;
 export const SAFE_CHAR_ID = /^[A-Za-z0-9-]{1,64}$/;
-const SAVE_SCHEMA_VERSION = 12;
+const SAVE_SCHEMA_VERSIONS = new Set([12, 13]);
 const MANUAL_ID = /^manual(0[1-9]|[1-8][0-9]|90)$/;
 const PHOTO_FILE = /^[a-z0-9]+_(?:bunnyboard|chat)_\d{3,6}\.(?:png|webp)$/;
 
@@ -87,9 +88,9 @@ export class GameFiles {
   async readSave(playthroughId: string, saveId: string): Promise<SaveFile> {
     const raw = await fs.readFile(this.saveFilePath(playthroughId, saveId), "utf8");
     const save = JSON.parse(raw) as SaveFile;
-    if (save.schemaVersion !== SAVE_SCHEMA_VERSION) {
+    if (!SAVE_SCHEMA_VERSIONS.has(save.schemaVersion)) {
       throw new Error(
-        `This save is schema version ${save.schemaVersion}; this app understands version ${SAVE_SCHEMA_VERSION} (game 0.4.0).`,
+        `This save is schema version ${save.schemaVersion}; this app understands versions 12 and 13 (game 0.4.0 and 0.5.0).`,
       );
     }
     if (!save.bunnyboard || typeof save.bunnyboard !== "object") throw new Error("This save has no phone data.");
@@ -109,8 +110,12 @@ export class GameFiles {
     for (const id of ids) {
       try {
         const record = await this.readRecord(id);
-        const season = seasonOfTerm(record.term?.index ?? 0);
-        const saves = (await this.listSaves(id)).map((s) => ({ ...s, when: formatDateBanner(s.date, s.time, season) }));
+        const saves = (await this.listSaves(id)).flatMap((s) => {
+          try {
+            const season = seasonOfTerm(semesterOf(record, s.semester).index);
+            return [{ ...s, when: formatDateBanner(s.date, s.time, season) }];
+          } catch { return []; } // A missing semester must not hide the other valid saves.
+        });
         if (saves.length === 0) continue;
         out.push({
           playthroughId: id,
@@ -141,6 +146,7 @@ export class GameFiles {
           date: save.date,
           time: save.time,
           saveDate: save.saveDate,
+          semester: save.semester,
         });
       } catch {
         // Unreadable or a different schema: not offered.
@@ -154,12 +160,13 @@ export class GameFiles {
    * shows in the game's load menu. Never overwrites an existing file.
    */
   async writeNewSlotSave(playthroughId: string, save: SaveFile): Promise<string> {
+    if (!SAVE_SCHEMA_VERSIONS.has(save.schemaVersion)) throw new Error("Cannot write an unsupported save schema.");
     const dir = this.playthroughDir(playthroughId);
     const taken = new Set((await fs.readdir(dir)).map((name) => name.replace(/\.json$/, "")));
     let candidate = Date.now();
     while (taken.has(String(candidate))) candidate += 1;
     const saveId = String(candidate);
-    const stamped: SaveFile = { ...save, playthroughId, saveId, schemaVersion: SAVE_SCHEMA_VERSION, saveDate: Date.now() };
+    const stamped: SaveFile = { ...save, playthroughId, saveId, saveDate: Date.now() };
     const target = this.saveFilePath(playthroughId, saveId);
     const partial = `${target}.partial`;
     await fs.writeFile(partial, JSON.stringify(stamped), { encoding: "utf8", flag: "wx" });
@@ -207,6 +214,7 @@ export class GameFiles {
 }
 
 export interface SaveSummary {
+  semester?: string;
   saveId: string;
   kind: "autosave" | "slot" | "manual";
   date: number;

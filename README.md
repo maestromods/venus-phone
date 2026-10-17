@@ -6,7 +6,7 @@ Unofficial fan project. Not made by or affiliated with Venus Dev. No game files,
 
 ## Requirements
 
-- Windows PC with Venus University 0.4.0 (save schema 12)
+- Windows PC with Venus University 0.4.0 or 0.5.0 (save schemas 12 and 13)
 - [Node.js](https://nodejs.org/) 20 or newer
 - A Gemini or OpenRouter API key
 - For photos from the girls: the game's local ComfyUI, set up from inside the game
@@ -32,7 +32,8 @@ If Windows Firewall asks, allow **Private networks** only.
 - **Her replies:** she sends a varied number of texts each time (usually one or two, sometimes more), and now and then reacts to your text with an emoji.
 - **Her photos:** she sends one when you ask, or now and then on her own. Ask for a selfie, mirror pic, full body, timer shot or candid and she follows it; otherwise the kind of shot varies. They are drawn using the game's local ComfyUI. DM photo behavior and relationship-based photo tiers are adapted from **Photo Feature**, naudh1r's mod in **Venus Extracurriculars**; these features are not part of the base game's Photos feature.
 - **Themes (Settings → Appearance):** Bunnyboard, Midnight, OLED (true black), Light, or match your device, plus an accent colour. On desktop you can also set a background around the chat (gradients or your own picture). Saved per device.
-- **Sync:** close the game, tap Sync, then load the newest slot save in the game. Sync always writes a *new* save; your existing saves are never changed. If the game saved since you started, your chats go on top of its newest save.
+- **Sync:** close the game, tap Sync, then load the newest slot save in the game. Sync always writes a *new* save; your existing saves are never changed. If the game saved since you started, your chats go on top of its newest save in the same semester. If the newest save belongs to a different semester (including another continuation branch), sync stops and keeps your unsynced chats rather than moving them onto the wrong calendar. Sync before continuing to a new semester.
+- **0.5.0 semesters:** contacts include that save's roster and graduates, dates follow its spring/fall calendar, and character profiles come from the matching semester. Sync preserves the source save's schema and additional game fields.
 
 ## Privacy and security
 
