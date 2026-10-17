@@ -185,7 +185,7 @@ export function buildTextingPrompt(
   const characterBlock = [
     "CHARACTER",
     `${name} ${character.lastName}.`,
-    ...(info?.major ? [`${name} is a year ${info.year ?? 1} ${info.major} major.`] : []),
+    ...(info?.pursuing ? [`${name} has graduated and is now ${info.pursuing}.`] : info?.major ? [`${name} is a year ${info.year ?? 1} ${info.major} major.`] : []),
     ...profileLines(character, info?.flags ?? emptyFlags()),
     ...relationshipLines(character, info, save.date, save.stats, hasTexted(conversation)),
     ...memoryLines(character, info, MEMORY_BUDGET, season),

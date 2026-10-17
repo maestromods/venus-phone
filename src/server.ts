@@ -271,7 +271,10 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
       return sendJson(res, 200, await status());
     }
     if (route === "GET /api/contacts") return sendJson(res, 200, { contacts: phone.contacts() });
-    if (route === "POST /api/sync") return sendJson(res, 200, await phone.sync());
+    if (route === "POST /api/sync") {
+      const body = await readJson(req);
+      return sendJson(res, 200, await phone.sync(typeof body.confirmedTarget === "string" ? body.confirmedTarget : undefined));
+    }
     if (route === "GET /api/settings") return sendJson(res, 200, publicSettings());
     if (route === "POST /api/settings") {
       const body = await readJson(req);

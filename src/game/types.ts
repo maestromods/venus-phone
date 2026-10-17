@@ -1,4 +1,4 @@
-// Shapes of the game's own files (Venus University 0.4.0, save schemaVersion 12).
+// Shapes of the game's own files (Venus University 0.4.0 / 0.5.0, save schemas 12 / 13).
 // Only the fields this app reads or writes are typed; everything else is carried through untouched.
 
 export type Sender = "player" | "contact" | "system";
@@ -63,6 +63,7 @@ export interface CharInfo {
   nameKnown?: boolean;
   major?: string;
   year?: number;
+  pursuing?: string;
   textMemory?: Memory;
   jealousyMemories?: Memory[];
   giftMemories?: Memory[];
@@ -72,6 +73,8 @@ export interface CharInfo {
 
 export interface SaveFile {
   schemaVersion: number;
+  /** Absent for the first semester; otherwise a key in the playthrough's semesters. */
+  semester?: string;
   saveDate: number;
   date: number;
   time: number;
@@ -90,7 +93,23 @@ export interface PlaythroughRecord {
   playerFirstName: string;
   playerLastName: string;
   name?: string;
-  term?: { index?: number };
+  profiles?: Record<string, CharacterProfile>;
+  semesters?: Record<string, SemesterRecord>;
+  [extra: string]: unknown;
+}
+
+export interface CharacterProfile {
+  major?: string;
+  year?: number;
+  pursuing?: string;
+  [extra: string]: unknown;
+}
+
+export interface SemesterRecord {
+  index: number;
+  chars: string[];
+  alumni: string[];
+  profiles: Record<string, CharacterProfile>;
   [extra: string]: unknown;
 }
 
