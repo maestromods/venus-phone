@@ -74,7 +74,7 @@ export function isOwnHost(hostHeader: string | undefined, own: { ips: string[]; 
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const sessions = new Map<string, number>();
-export const COOKIE = "vphone";
+export const COOKIE = "vphone_voice_experiment";
 
 export function createSession(): string {
   const token = randomBytes(32).toString("hex");

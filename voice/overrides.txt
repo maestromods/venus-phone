@@ -1,0 +1,3 @@
+# Blackwell GPU support requires a newer CUDA build than Chatterbox's default pin.
+torch==2.9.1+cu128
+torchaudio==2.9.1+cu128

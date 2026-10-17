@@ -29,21 +29,21 @@ const SAFETY_OFF = [
 
 export class LlmError extends Error {}
 
-export async function completeStructured(settings: LlmSettings, request: TextingRequest): Promise<unknown> {
+export async function completeStructured(settings: LlmSettings, request: TextingRequest, signal?: AbortSignal): Promise<unknown> {
   if (!settings.apiKey) throw new LlmError("No API key is set. Add one in Settings.");
   if (!settings.model.trim()) throw new LlmError("No model is set. Choose one in Settings.");
-  const text = settings.provider === "gemini" ? await callGemini(settings, request) : await callChat(settings, request);
+  const text = settings.provider === "gemini" ? await callGemini(settings, request, signal) : await callChat(settings, request, signal);
   return parseJson(text);
 }
 
-async function post(url: string, headers: Record<string, string>, body: unknown): Promise<unknown> {
+async function post(url: string, headers: Record<string, string>, body: unknown, signal?: AbortSignal): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {
     throw new LlmError(`Could not reach the AI service: ${(err as Error).message}`);
@@ -66,7 +66,7 @@ async function post(url: string, headers: Record<string, string>, body: unknown)
   return parsed;
 }
 
-async function callGemini(settings: LlmSettings, request: TextingRequest): Promise<string> {
+async function callGemini(settings: LlmSettings, request: TextingRequest, signal?: AbortSignal): Promise<string> {
   const url = `${GEMINI_BASE}/models/${encodeURIComponent(settings.model)}:generateContent`;
   const parsed = (await post(
     url,
@@ -91,6 +91,7 @@ async function callGemini(settings: LlmSettings, request: TextingRequest): Promi
       },
       safetySettings: SAFETY_OFF,
     },
+    signal,
   )) as GeminiResponse;
   if (parsed.promptFeedback?.blockReason) {
     throw new LlmError(`Gemini blocked the request (${parsed.promptFeedback.blockReason}).`);
@@ -111,7 +112,7 @@ interface GeminiResponse {
   candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>;
 }
 
-async function callChat(settings: LlmSettings, request: TextingRequest): Promise<string> {
+async function callChat(settings: LlmSettings, request: TextingRequest, signal?: AbortSignal): Promise<string> {
   const base = settings.endpointUrl.replace(/\/+$/, "");
   const parsed = (await post(
     `${base}/chat/completions`,
@@ -140,6 +141,7 @@ async function callChat(settings: LlmSettings, request: TextingRequest): Promise
       reasoning_effort: settings.thinking === "minimal" ? "low" : settings.thinking,
       max_tokens: MAX_OUTPUT_TOKENS,
     },
+    signal,
   )) as ChatResponse;
   if (parsed.error) throw new LlmError(`The AI service reported an error: ${parsed.error.message ?? "unknown"}`);
   const choice = parsed.choices?.[0];

@@ -2,6 +2,7 @@
 // Run `npm start`, then open the printed https://<pc-ip>:<port> on your phone.
 
 import { createReadStream, promises as fs } from "node:fs";
+import { once } from "node:events";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { homedir, networkInterfaces } from "node:os";
@@ -13,6 +14,7 @@ import { decryptSecret, encryptSecret, loadConfig, saveConfig, type AppConfig } 
 import { GameFiles, isGameRunning } from "./game/files.js";
 import { LlmError, type LlmSettings, type Provider, type ThinkingLevel } from "./llm.js";
 import { Phone, PhoneError } from "./phone.js";
+import { LocalVoice, VoiceCalls } from "./voice.js";
 import { INCOMING_CHOICES, incomingSetting, loadIncoming, MAX_CHOICES, setIncoming, startIncomingLoop } from "./incoming.js";
 import {
   checkPin,
@@ -53,11 +55,13 @@ const SECURITY_HEADERS = {
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "no-referrer",
   "Content-Security-Policy":
-    "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 
 let config: AppConfig;
 let phone: Phone;
+const localVoice = new LocalVoice();
+let calls: VoiceCalls;
 let tls: TlsMaterial | null = null;
 
 async function main(): Promise<void> {
@@ -68,6 +72,7 @@ async function main(): Promise<void> {
     console.log("\nNo game folder chosen yet. Open the app and pick your Venus University folder.\n");
   }
   phone = new Phone(files);
+  calls = new VoiceCalls(phone, localVoice);
   await phone.restore();
   await loadIncoming();
   startIncomingLoop(
@@ -92,7 +97,7 @@ async function main(): Promise<void> {
     try {
       tls = await ensureTls();
     } catch (err) {
-      console.warn(`\n[!] Couldn't set up HTTPS (${(err as Error).message}). Running over plain HTTP instead.\n`);
+      throw new Error(`Could not set up HTTPS: ${(err as Error).message}. HTTPS was requested, so the server has not started. Fix certificate setup before trying again.`);
     }
   }
 
@@ -100,6 +105,7 @@ async function main(): Promise<void> {
   const http = createServer((req, res) => handle(req, res, false).catch(onError(res)));
   http.requestTimeout = 300_000;
   http.listen(config.port, "0.0.0.0");
+  await once(http, "listening");
   servers.push(http);
   if (tls) {
     const secure = createHttpsServer({ pfx: tls.pfx, passphrase: tls.passphrase, minVersion: "TLSv1.2" }, (req, res) =>
@@ -107,6 +113,7 @@ async function main(): Promise<void> {
     );
     secure.requestTimeout = 300_000;
     secure.listen(httpsPort(), "0.0.0.0");
+    await once(secure, "listening");
     servers.push(secure);
   }
 
@@ -126,8 +133,10 @@ async function main(): Promise<void> {
   }
   console.log(`\nOn this PC: http://localhost:${config.port}`);
   console.log("\nOnly devices on your local network are answered. Press Ctrl+C to stop.\n");
+  if (process.env.VENUS_VOICE_PRELOAD === "1") void localVoice.load().catch(err => console.error("[voice]", err.message));
 
   const shutdown = () => {
+    calls.stop();
     stopComfy();
     for (const server of servers) server.close();
     process.exit(0);
@@ -253,9 +262,47 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
 
   try {
     if (route === "POST /api/logout") {
+      await calls.logout(token);
       endSession(token);
       res.setHeader("Set-Cookie", clearedCookie(secure));
       return sendJson(res, 200, { ok: true });
+    }
+    if (route === "GET /api/voice/status") return sendJson(res, 200, localVoice.status());
+    if (route === "POST /api/voice/load") { await readJson(req); return sendJson(res, 200, await localVoice.load()); }
+    if (route === "GET /api/voice/voices") return sendJson(res, 200, await localVoice.request("voices"));
+    if (route === "POST /api/voice/add") {
+      const body = await readJson(req, 6 * 1024 * 1024);
+      if (typeof body.audio !== "string" || typeof body.name !== "string") throw new PhoneError("Choose a WAV voice reference.");
+      return sendJson(res, 200, await localVoice.request("add_voice", { audio: body.audio, name: body.name.slice(0, 80) }));
+    }
+    if (route === "POST /api/voice/test") {
+      const body = await readJson(req);
+      if (!localVoice.status().ready) throw new PhoneError("Load the voice models first.", 503);
+      if (typeof body.text !== "string" || !body.text.trim() || body.text.length > 300) throw new PhoneError("Enter up to 300 characters to preview.");
+      return sendJson(res, 200, await localVoice.request("speak", { text: body.text, voice: typeof body.voice === "string" ? body.voice : "default" }));
+    }
+    if (route === "POST /api/calls/start") {
+      const body = await readJson(req);
+      if (typeof body.charId !== "string") throw new PhoneError("Choose a contact.");
+      return sendJson(res, 200, await calls.start(token, body.charId, typeof body.voice === "string" ? body.voice : "default"));
+    }
+    const voiceRoute = /^\/api\/calls\/([a-f0-9-]{36})\/(heartbeat|turn|audio|ack|interrupt|transcribe|end)$/.exec(url.pathname);
+    if (method === "POST" && voiceRoute?.[1]) {
+      const body = await readJson(req, voiceRoute[2] === "transcribe" ? 6 * 1024 * 1024 : MAX_BODY);
+      const id = voiceRoute[1];
+      let result: unknown;
+      switch (voiceRoute[2]) {
+        case "heartbeat": result = calls.heartbeat(token, id); break;
+        case "end": result = await calls.end(token, id); break;
+        case "interrupt": result = await calls.interrupt(token, id); break;
+        case "turn": result = await calls.turn(token, id, typeof body.text === "string" ? body.text : "", body.opening === true, await llmSettings(false)); break;
+        case "audio": result = await calls.audio(token, id, String(body.replyId), Number(body.index)); break;
+        case "ack": result = await calls.ack(token, id, String(body.replyId), Number(body.index)); break;
+        case "transcribe":
+          if (typeof body.audio !== "string") throw new PhoneError("No microphone audio received.");
+          result = await calls.transcribe(token, id, body.audio); break;
+      }
+      return sendJson(res, 200, result);
     }
     if (route === "GET /api/browse") return sendJson(res, 200, await browse(url.searchParams.get("path") ?? ""));
     if (route === "GET /api/playthroughs") {
@@ -634,7 +681,10 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
 }
 
 main().catch((err) => {
-  console.error(err);
+  if (err?.code === "EADDRINUSE") {
+    console.error(`\nPort ${err.port} is already in use. If Venus Phone is running, open http://localhost:${config?.port ?? err.port}.`);
+    console.error("Use stop-voice.cmd to stop this experimental build before restarting it.\n");
+  } else console.error(err);
   process.exit(1);
 });
 

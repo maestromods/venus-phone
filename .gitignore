@@ -21,3 +21,12 @@ skills-lock.json
 *.p12
 *.enc
 *.bak
+
+# Local voice models, environment, recordings and caches.
+voice/.venv/
+voice/.runtime/
+voice/.cache/
+voice/cache/
+voice/models/
+voice/voices/
+**/__pycache__/

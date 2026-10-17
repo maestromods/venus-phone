@@ -38,7 +38,13 @@ function run(script: string, env: Record<string, string>): Promise<void> {
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
       // Values reach the script only as environment variables, never as code.
-      { windowsHide: true, env: { ...process.env, ...env }, maxBuffer: 1024 * 1024 },
+      {
+        windowsHide: true,
+        // A launcher running in PowerShell 7 can pass its incompatible modules to Windows
+        // PowerShell 5.1. Certificate cmdlets must use Windows' own Security/PKI modules.
+        env: { ...process.env, PSModulePath: path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "Modules"), ...env },
+        maxBuffer: 1024 * 1024,
+      },
       (err, _stdout, stderr) => (err ? reject(new Error(stderr.trim() || err.message)) : resolve()),
     );
   });

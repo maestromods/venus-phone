@@ -112,6 +112,35 @@ export class Phone {
     if (this.syncing) throw new PhoneError("Wait for sync to finish.", 409);
   }
 
+  reserveVoiceCall(charId: string): void {
+    const character = this.characterOf(charId);
+    this.assertCanText(charId, this.view(), character);
+    this.inFlight.add(charId);
+  }
+
+  releaseVoiceCall(charId: string): void { this.inFlight.delete(charId); }
+
+  voiceContext(charId: string) {
+    return this.promptContext(this.view(), this.characterOf(charId), "none", false);
+  }
+
+  async recordVoice(charId: string, callId: string, sender: "player" | "contact" | "system", text: string): Promise<void> {
+    const { state, base } = this.require();
+    (state.delta.added[charId] ??= []).push({
+      id: randomUUID(), sender, text: sender === "system" ? text : `[Phone call] ${text}`,
+      date: base.date, time: base.time, exCallId: callId,
+    });
+    if (state.unanswered) delete state.unanswered[charId];
+    await this.persist();
+  }
+
+  async blockFromVoice(charId: string, callId: string): Promise<void> {
+    const { state } = this.require();
+    if (!state.delta.blocked.includes(charId)) state.delta.blocked.push(charId);
+    state.delta.unblocked = state.delta.unblocked?.filter(id => id !== charId);
+    await this.recordVoice(charId, callId, "system", `${this.characterOf(charId).firstName} blocked you during the call.`);
+  }
+
   setGameFiles(files: GameFiles): void {
     this.assertNotSyncing();
     if (this.inFlight.size) throw new PhoneError("Wait for replies before changing the game folder.", 409);
@@ -332,7 +361,7 @@ export class Phone {
   /** Only the latest reply can be replaced without invalidating later conversation. */
   private regenerationTarget(messages: ChatMessage[]): ChatMessage | undefined {
     const last = messages[messages.length - 1];
-    return last?.sender === "contact" ? last : undefined;
+    return last?.sender === "contact" && !last.exCallId ? last : undefined;
   }
 
   async deleteMessage(charId: string, id: string) {

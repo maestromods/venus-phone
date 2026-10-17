@@ -1,7 +1,10 @@
 // Bunnyboard phone client. Plain DOM, no build step. All text from the server is set with
 // textContent, never innerHTML.
 
+import { openVoicePanel } from "./voice.js";
 const $ = (id) => document.getElementById(id);
+$('call-btn').addEventListener('click', () => openVoicePanel({ charId: openCharId, name: $('thread-title').textContent, onClose: () => { if (openCharId) void openThread(openCharId); } }));
+$('voice-studio').addEventListener('click', () => openVoicePanel());
 
 // ---- Theme (per device) ---------------------------------------------------------------------------
 
@@ -407,6 +410,7 @@ function renderThread(thread, scroll, held = new Set()) {
     $("incoming-btn").classList.toggle("on", thread.incoming.everyMinutes !== 0);
   }
   const composerOff = thread.blocked || unblocking;
+  $("call-btn").disabled = composerOff || thread.busy || revealing || editingMessage;
   $("draft").disabled = composerOff;
   $("attach-btn").disabled = composerOff;
   $("composer").querySelector("button[type=submit]").disabled = composerOff;
@@ -748,7 +752,7 @@ async function pollNotices() {
   try {
     const { notices, unread, now } = await api(`/api/notices?since=${noticeSince}`);
     noticeSince = now;
-    document.title = unread ? `(${unread}) Bunnyboard` : "Bunnyboard";
+    document.title = unread ? `(${unread}) Bunnyboard · Voice experiment` : "Bunnyboard · Voice experiment";
     for (const notice of notices) {
       if (current === "thread" && openCharId === notice.charId) {
         await refreshThread(true);
