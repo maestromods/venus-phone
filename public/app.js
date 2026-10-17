@@ -293,7 +293,18 @@ $("sync-btn").addEventListener("click", async () => {
   button.disabled = true;
   $("sync-status").textContent = "Syncing…";
   try {
-    const result = await api("/api/sync", { body: {} });
+    let result = await api("/api/sync", { body: {} });
+    if (result.requiresConfirmation) {
+      if (!confirm(result.warning)) {
+        $("sync-status").textContent = "Sync cancelled. Your pending chats are still kept in the app.";
+        return;
+      }
+      result = await api("/api/sync", { body: { confirmedTarget: result.token } });
+      if (result.requiresConfirmation) {
+        $("sync-status").textContent = "The save or pending chats changed again. Nothing was synced; tap Sync to review the latest changes.";
+        return;
+      }
+    }
     $("sync-status").textContent = result.rebased
       ? `Synced ${result.messages} messages onto the game's newest save. Load save ${result.saveId} in the game.`
       : `Synced ${result.messages} messages. Load the newest slot save in the game.`;

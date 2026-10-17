@@ -116,7 +116,10 @@ test('sync rebases in the same semester, preserving schema, profiles separation 
   await phone.choose('1', '1', false);
   await phone.deleteMessage('old', 'original');
   await writeFile(files.saveFilePath('1', '2'), JSON.stringify({ ...save(13, '20'), saveDate: 200, money: 777 }));
-  const result = await phone.sync();
+  const preview = await phone.sync();
+  assert.equal(preview.requiresConfirmation, true);
+  assert.equal(phone.pendingCount(), 1);
+  const result = await phone.sync(preview.token);
   assert.equal(result.rebased, true);
   const written = await files.readSave('1', result.saveId);
   assert.equal(written.schemaVersion, 13);
@@ -125,6 +128,42 @@ test('sync rebases in the same semester, preserving schema, profiles separation 
   assert.deepEqual(written.bunnyboard.conversations.old.messages, []);
   assert.equal(written.charInfo.old.pursuing, undefined);
   assert.deepEqual(written.unknownFutureField, { keep: true });
+  assert.equal(written.bunnyboard.conversations.old.summary, '');
+  const savedFiles = await readdir(files.playthroughDir('1'));
+  await assert.rejects(phone.sync(), /Nothing new to sync/);
+  assert.deepEqual(await readdir(files.playthroughDir('1')), savedFiles);
+});
+test('rewritten autosaves require confirmation even with the same id and timestamp, including after restore', async () => {
+  const files = await fixture();
+  const phone = new Phone(files);
+  await phone.choose('1', '1', false);
+  await phone.deleteMessage('old', 'original');
+  await writeFile(files.saveFilePath('1', '1'), JSON.stringify({ ...save(), money: 100 }));
+  const restored = new Phone(files);
+  await restored.restore();
+  const preview = await restored.sync();
+  assert.equal(preview.requiresConfirmation, true);
+  assert.match(preview.warning, /block\/unblock/);
+  const before = await readdir(files.playthroughDir('1'));
+  await writeFile(files.saveFilePath('1', '1'), JSON.stringify({ ...save(), money: 200 }));
+  const updated = await restored.sync(preview.token);
+  assert.equal(updated.requiresConfirmation, true);
+  assert.notEqual(updated.token, preview.token);
+  assert.deepEqual(await readdir(files.playthroughDir('1')), before);
+  const result = await restored.sync(updated.token);
+  assert.equal((await files.readSave('1', result.saveId)).money, 200);
+});
+test('an unchanged save syncs directly and refuses concurrent sync or message edits', async () => {
+  const files = await fixture();
+  const phone = new Phone(files);
+  await phone.choose('1', '1', false);
+  await phone.deleteMessage('old', 'original');
+  const pending = phone.sync();
+  await assert.rejects(phone.sync(), /Wait for sync/);
+  await assert.rejects(phone.deleteMessage('old', 'original'), /Wait for sync/);
+  const result = await pending;
+  assert.equal(result.requiresConfirmation, false);
+  assert.equal(result.rebased, false);
 });
 test('sync refuses another semester or continuation branch without writing or discarding edits', async () => {
   for (const [from, to] of [[undefined, '20'], ['20', undefined], ['20', '21']]) {

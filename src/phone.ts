@@ -3,7 +3,7 @@
 // on Sync (a new numbered save) and when one of her photos lands in the playthrough's photos folder.
 // Photos you send stay in ./app-data/uploads; the game gets a written description of them.
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { renderPhoto } from "./comfy.js";
@@ -69,6 +69,7 @@ interface SessionState {
   playthroughId: string;
   baseSaveId: string;
   baseSaveDate: number;
+  baseFingerprint?: string;
   delta: Delta;
   /** Texts she started in a row that you haven't answered, per girl. */
   unanswered?: Record<string, number>;
@@ -78,6 +79,7 @@ interface SessionState {
 type UploadIndex = Record<string, { playthroughId: string; charId: string; file: string; scene: string }>;
 
 const emptyDelta = (): Delta => ({ added: {}, summaries: {}, blocked: [], unread: {} });
+const fingerprint = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
 export class PhoneError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -98,6 +100,7 @@ export class Phone {
   private record: PlaythroughRecord | null = null;
   private characters = new Map<string, Character>();
   private inFlight = new Set<string>();
+  private syncing = false;
   private rendering = new Set<string>();
   private uploads: UploadIndex = {};
   /** Recent texts she started, for in-app notifications. */
@@ -105,7 +108,12 @@ export class Phone {
 
   constructor(private files: GameFiles) {}
 
+  private assertNotSyncing(): void {
+    if (this.syncing) throw new PhoneError("Wait for sync to finish.", 409);
+  }
+
   setGameFiles(files: GameFiles): void {
+    this.assertNotSyncing();
     if (this.inFlight.size) throw new PhoneError("Wait for replies before changing the game folder.", 409);
     this.files = files;
     this.state = null;
@@ -157,6 +165,7 @@ export class Phone {
       if (character) characters.set(charId, character);
     }
     this.state = state;
+    state.baseFingerprint ??= fingerprint(base);
     this.base = base;
     this.record = record;
     this.characters = characters;
@@ -195,6 +204,7 @@ export class Phone {
 
   /** Starts texting from a save. Refuses to drop unsynced chats unless told to. */
   async choose(playthroughId: string, saveId: string, discard: boolean): Promise<void> {
+    this.assertNotSyncing();
     if (this.inFlight.size) throw new PhoneError("Wait for replies before changing saves.", 409);
     if (this.pendingCount() > 0 && !discard) {
       throw new PhoneError("You have chats that are not synced yet. Sync first, or choose again to discard them.", 409);
@@ -271,6 +281,7 @@ export class Phone {
 
   /** Opening a thread marks her texts read. */
   async markRead(charId: string): Promise<void> {
+    if (this.syncing) return;
     const unread = this.state?.delta.unread;
     if (unread?.[charId]) {
       delete unread[charId];
@@ -325,6 +336,7 @@ export class Phone {
   }
 
   async deleteMessage(charId: string, id: string) {
+    this.assertNotSyncing();
     this.characterOf(charId);
     const { state } = this.require();
     if (this.inFlight.has(charId)) throw new PhoneError("Wait for the reply before editing messages.", 409);
@@ -422,6 +434,7 @@ export class Phone {
 
   /** The hidden profile gesture reopens contact only after her message is ready. */
   async unblock(charId: string, llm: LlmSettings) {
+    this.assertNotSyncing();
     const { state } = this.require();
     const character = this.characterOf(charId);
     const save = this.view();
@@ -447,6 +460,7 @@ export class Phone {
   }
 
   private assertCanText(charId: string, save: SaveFile, character: Character): void {
+    this.assertNotSyncing();
     const flags = save.charInfo[charId]?.flags ?? emptyFlags();
     if (!flags.gaveContactInfo) throw new PhoneError(`${character.firstName} hasn't given you her number.`, 403);
     if (flags.blocked) throw new PhoneError(`${character.firstName} has you blocked.`, 403);
@@ -829,26 +843,49 @@ export class Phone {
    * saved since you picked your save, the chats are laid over its newest save instead, so no
    * progress is lost either way.
    */
-  async sync(): Promise<{ saveId: string; rebased: boolean; messages: number }> {
+  async sync(confirmedTarget?: string) {
+    this.assertNotSyncing();
+    this.syncing = true;
+    try { return await this.syncOnce(confirmedTarget); }
+    finally { this.syncing = false; }
+  }
+
+  private async syncOnce(confirmedTarget?: string) {
     const { state, base: selected } = this.require();
     if (this.inFlight.size) throw new PhoneError("Wait for replies before syncing.", 409);
+    if (this.rendering.size) throw new PhoneError("Wait for photos to finish before syncing.", 409);
     if (await isGameRunning()) {
       throw new PhoneError("Close Venus University before syncing; it would overwrite the synced save with its own autosave.", 409);
     }
     const messages = this.pendingCount();
-    if (messages === 0) throw new PhoneError("Nothing new to sync.");
+    if (messages === 0) throw new PhoneError("Nothing new to sync. No save was written. To catch up with game progress, pick the newest save.");
 
     const saves = await this.files.listSaves(state.playthroughId);
     const newest = saves[0];
-    const rebased = Boolean(newest && newest.saveId !== state.baseSaveId && newest.saveDate > state.baseSaveDate);
-    const baseId = rebased && newest ? newest.saveId : state.baseSaveId;
+    const baseId = newest && newest.saveDate >= state.baseSaveDate ? newest.saveId : state.baseSaveId;
     const base = await this.files.readSave(state.playthroughId, baseId);
+    // Autosave/manual slots can change in place without getting a new filename.
+    const rebased = baseId !== state.baseSaveId || base.saveDate !== state.baseSaveDate || fingerprint(base) !== state.baseFingerprint;
     if (base.semester !== selected.semester) {
       throw new PhoneError("The newest save is in a different semester. Your chats are still kept here; choose a save in that semester to start a new phone session. Sync cannot move chats between semesters.", 409);
     }
     // Validate the current record before writing anything.
-    semesterOf(await this.files.readRecord(state.playthroughId), base.semester);
+    const semester = semesterOf(await this.files.readRecord(state.playthroughId), base.semester);
+    const token = fingerprint({ playthrough: state.playthroughId, selected: state.baseSaveId, base, delta: state.delta });
+    if (rebased && confirmedTarget !== token) {
+      return {
+        requiresConfirmation: true as const,
+        token,
+        warning: `The game has changed since this phone session began. Sync will add ${messages} pending message changes to save ${baseId} (${formatDateBanner(base.date, base.time, seasonOfTerm(semester.index))}). Newer game progress is kept. Phone deletions and block/unblock decisions will also apply, and affected chat recaps will be cleared. Existing save files are never overwritten. Continue?`,
+      };
+    }
     const merged = applyDelta(base, state.delta, true);
+    if (rebased) {
+      const touched = new Set([...Object.keys(state.delta.added), ...Object.keys(state.delta.deleted ?? {}), ...Object.keys(state.delta.summaries)]);
+      for (const id of touched) {
+        if (merged.bunnyboard.conversations[id]) merged.bunnyboard.conversations[id].summary = "";
+      }
+    }
     const saveId = await this.files.writeNewSlotSave(state.playthroughId, merged);
 
     const written = await this.files.readSave(state.playthroughId, saveId);
@@ -863,7 +900,7 @@ export class Phone {
     // Unread stays unread in the app too.
     if (this.state) this.state.delta.unread = { ...unread };
     await this.persist();
-    return { saveId, rebased, messages };
+    return { requiresConfirmation: false as const, saveId, rebased, messages };
   }
 }
 

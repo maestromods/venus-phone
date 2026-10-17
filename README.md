@@ -35,6 +35,8 @@ If Windows Firewall asks, allow **Private networks** only.
 - **Sync:** close the game, tap Sync, then load the newest slot save in the game. Sync always writes a *new* save; your existing saves are never changed. If the game saved since you started, your chats go on top of its newest save in the same semester. If the newest save belongs to a different semester (including another continuation branch), sync stops and keeps your unsynced chats rather than moving them onto the wrong calendar. Sync before continuing to a new semester.
 - **0.5.0 semesters:** contacts include that save's roster and graduates, dates follow its spring/fall calendar, and character profiles come from the matching semester. Sync preserves the source save's schema and additional game fields.
 
+If you play the game between phone sessions, Sync detects changed saves (including overwritten autosave/manual slots) and asks before applying pending phone changes to newer progress. The warning identifies the target save and covers message deletions and block/unblock decisions. Confirmation is tied to that save's contents and the pending edits; changes after the warning require another review. Affected chat recaps are cleared so an older phone recap cannot replace newer game context. With no pending changes, Sync writes nothing; pick the newest save to refresh the app's conversation and relationship context. After syncing, load the newly created slot in the game before playing on.
+
 ## Privacy and security
 
 - **Plain HTTP by default.** Like most self-hosted apps (SillyTavern included), the phone connects over plain HTTP. Anyone who can watch your local network traffic could read your chats and session cookie, so use Wi-Fi you trust.
