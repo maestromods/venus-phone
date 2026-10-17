@@ -1,16 +1,16 @@
 // DM photos through the game's local ComfyUI and characterPhoto.json workflow, following
 // naudh1r's Photo Feature mod in Venus Extracurriculars. DM photos are not a base-game feature.
+// Vanilla 0.5.0 falls back to its installed CG graph, adapted for free-form phone photos.
 // ComfyUI only listens on 127.0.0.1.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { promises as fs, openSync } from "node:fs";
 import path from "node:path";
 import type { GameFiles } from "./game/files.js";
+import { loadPhotoWorkflow } from "./game/photoWorkflow.js";
 
 const BASE_URL = "http://127.0.0.1:8188";
 const PORT = "8188";
-// Node ids in characterPhoto.json, as the game's PHOTO_NODE map names them.
-const PHOTO_NODE = { seed: "14", positivePrompt: "4", negativePrompt: "5", saveImage: "41" };
 const START_WAIT_MS = 4 * 60_000;
 const RENDER_WAIT_MS = 10 * 60_000;
 
@@ -73,26 +73,15 @@ export function stopComfy(): void {
 }
 
 /** Renders one picture and writes it as a PNG to `destPath`. Jobs run one at a time. */
-export function renderPhoto(files: GameFiles, prompts: { positive: string; negative: string }, destPath: string): Promise<void> {
-  const job = queue.then(() => runPhoto(files, prompts, destPath));
+export function renderPhoto(files: GameFiles, prompts: { positive: string; negative: string }, destPath: string, characterLora?: unknown): Promise<void> {
+  const job = queue.then(() => runPhoto(files, prompts, destPath, characterLora));
   queue = job.catch(() => undefined);
   return job;
 }
 
-async function runPhoto(files: GameFiles, prompts: { positive: string; negative: string }, destPath: string): Promise<void> {
+async function runPhoto(files: GameFiles, prompts: { positive: string; negative: string }, destPath: string, characterLora?: unknown): Promise<void> {
+  const { workflow, outputNode } = await loadPhotoWorkflow(files, prompts, Math.floor(Math.random() * Number.MAX_SAFE_INTEGER), characterLora);
   await ensureRunning(files);
-  const workflow = JSON.parse(await fs.readFile(path.join(files.workflowsDir, "characterPhoto.json"), "utf8")) as Record<
-    string,
-    { inputs: Record<string, unknown> } | undefined
-  >;
-  const node = (id: string) => {
-    const found = workflow[id];
-    if (!found) throw new Error(`characterPhoto.json has no node ${id}; this game build is not the one this app was made for.`);
-    return found;
-  };
-  node(PHOTO_NODE.positivePrompt).inputs.text = prompts.positive;
-  node(PHOTO_NODE.negativePrompt).inputs.text = prompts.negative;
-  node(PHOTO_NODE.seed).inputs.seed = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
 
   const submit = await fetch(`${BASE_URL}/prompt`, {
     method: "POST",
@@ -114,7 +103,7 @@ async function runPhoto(files: GameFiles, prompts: { positive: string; negative:
     if (entry?.status?.completed !== undefined) break;
   }
   if (!entry?.status?.completed && entry?.status?.status_str !== "error") throw new Error("ComfyUI never finished the photo.");
-  const image = entry.outputs?.[PHOTO_NODE.saveImage]?.images?.[0];
+  const image = entry.outputs?.[outputNode]?.images?.[0];
   if (!image) throw new Error(`ComfyUI produced no photo${entry.status?.status_str === "error" ? " (it reported an error)" : ""}.`);
 
   const params = new URLSearchParams({ filename: image.filename, subfolder: image.subfolder ?? "", type: image.type ?? "output" });
@@ -129,7 +118,8 @@ async function runPhoto(files: GameFiles, prompts: { positive: string; negative:
   await fs.rename(partial, destPath);
 
   // The game clears its copy out of ComfyUI's output folder; so does this.
-  const outputRoot = path.resolve(files.comfyDir, "ComfyUI", "output");
+  if (image.type && image.type !== "output" && image.type !== "temp") return;
+  const outputRoot = path.resolve(files.comfyDir, "ComfyUI", image.type === "temp" ? "temp" : "output");
   const leftover = path.resolve(outputRoot, image.subfolder ?? "", image.filename);
   if (leftover.toLowerCase().startsWith(outputRoot.toLowerCase() + path.sep)) await fs.rm(leftover, { force: true });
 }

@@ -808,7 +808,7 @@ export class Phone {
       // Logged like the game logs its own renders, so a picture that misses can be traced.
       console.log(`[photo] ${character.firstName} (${photo.tier}): "${photo.scene}"`);
       console.log(`[photo] → ${prompts.positive.replace(/\n\n/g, " | ")}`);
-      await renderPhoto(this.files, prompts, dest);
+      await renderPhoto(this.files, prompts, dest, character.lora);
       await settle({ tier: photo.tier, scene: photo.scene, file: photo.file });
     } catch (err) {
       console.warn(`[photo] ${character.firstName}'s photo failed: ${(err as Error).message}`);
