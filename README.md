@@ -92,6 +92,8 @@ node dist/server.js
 
 Settings can also come from environment variables: `VENUS_GAME_DIR`, `VENUS_PHONE_PORT` (HTTP, default 8790), `VENUS_PHONE_HTTPS_PORT` (default HTTP port + 1), `VENUS_PHONE_PIN`, `VENUS_PHONE_DATA`, and `VENUS_PHONE_HTTPS=1` to turn on HTTPS.
 
+Pull requests targeting `main` and pushes to `main` run **Build and test (Windows)** in GitHub Actions. The workflow installs locked dependencies and runs `npm test` on Windows with Node.js 22. Tests use synthetic saves and mocked AI/speech providers; no game install, API keys, voice models, or personal data are needed.
+
 ## Credits
 
 - **Venus Dev:** [Venus University](https://venus-dev.itch.io/venus-university), the base game.
