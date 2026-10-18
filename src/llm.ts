@@ -1,9 +1,10 @@
-// Structured-output calls to Gemini or an OpenAI-compatible endpoint (OpenRouter), shaped like the
+// Structured-output calls to Gemini or a configurable OpenAI-compatible endpoint, shaped like the
 // game's own adapters: Gemini gets responseJsonSchema + thinkingConfig + safety off; chat
 // completions get a json_schema response_format.
 
 import type { TextingRequest } from "./texting/prompt.js";
 
+// Keep the historical "openrouter" identifier so saved compatible-provider settings still load.
 export type Provider = "gemini" | "openrouter";
 export type ThinkingLevel = "minimal" | "low" | "medium" | "high";
 

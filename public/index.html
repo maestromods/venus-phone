@@ -188,7 +188,7 @@
         <fieldset>
           <legend>AI service</legend>
           <label class="row"><input type="radio" name="provider" value="gemini"> Gemini</label>
-          <label class="row"><input type="radio" name="provider" value="openrouter"> OpenRouter</label>
+          <label class="row"><input type="radio" name="provider" value="openrouter"> Other providers (OpenAI-compatible)</label>
         </fieldset>
 
         <div data-for="gemini" class="stack">
@@ -207,18 +207,20 @@
         </div>
 
         <div data-for="openrouter" class="stack">
-          <label for="openrouterModel">OpenRouter model</label>
+          <p class="muted">Use OpenRouter, NanoGPT, or another compatible service. The API base URL, key, and model IDs must all come from the same provider.</p>
+          <label for="openrouterModel">Chat model</label>
           <input id="openrouterModel" name="openrouterModel" autocomplete="off" spellcheck="false">
-          <label for="openrouterVisionModel">Model for messages with your photos (must support images; blank = same as above)</label>
+          <label for="openrouterVisionModel">Photo message model (must support images; blank = chat model)</label>
           <input id="openrouterVisionModel" name="openrouterVisionModel" autocomplete="off" spellcheck="false">
           <label for="openrouterVideoModel">YouTube analysis model (Gemini with video support)</label>
           <input id="openrouterVideoModel" name="openrouterVideoModel" autocomplete="off" spellcheck="false">
           <p class="muted">Watch together reads public YouTube videos through Google AI Studio. Analysis and timed chat replies use your API credits.</p>
-          <label for="endpointUrl">Endpoint URL</label>
+          <label for="endpointUrl">API base URL</label>
           <input id="endpointUrl" name="endpointUrl" type="url" autocomplete="off" spellcheck="false">
-          <label for="openrouterKey">OpenRouter API key</label>
+          <p class="muted">For example, https://openrouter.ai/api/v1 or https://nano-gpt.com/api/v1. Leave off /chat/completions. Choose models that support structured JSON replies.</p>
+          <label for="openrouterKey">Provider API key</label>
           <input id="openrouterKey" name="openrouterKey" type="password" autocomplete="off" spellcheck="false">
-          <label class="row"><input type="checkbox" name="clearOpenrouterKey"> Remove saved OpenRouter key</label>
+          <label class="row"><input type="checkbox" name="clearOpenrouterKey"> Remove saved provider key</label>
         </div>
 
         <label for="thinking">Thinking</label>

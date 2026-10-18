@@ -8,7 +8,7 @@ Unofficial fan project. Not made by or affiliated with Venus Dev. No game files,
 
 - Windows PC with Venus University 0.4.0 or 0.5.0 (save schemas 12 and 13)
 - [Node.js](https://nodejs.org/) 20 or newer
-- A Gemini or OpenRouter API key
+- A Gemini API key, or a key for an OpenAI-compatible chat provider such as OpenRouter or NanoGPT; the selected model must support structured JSON replies
 - For photos from the girls: the game's managed local ComfyUI, set up from inside the game (external ComfyUI servers are not supported)
 
 ## Setup
@@ -24,10 +24,29 @@ Unofficial fan project. Not made by or affiliated with Venus Dev. No game files,
 
 If Windows Firewall asks, allow **Private networks** only.
 
+## AI providers
+
+Venus Phone supports **Gemini** directly and **Other providers (OpenAI-compatible)** through a configurable API base URL. OpenRouter is the default compatible endpoint. NanoGPT and other services can use the same settings when their selected model supports the required chat API and structured JSON output.
+
+In **Settings → AI service**, choose **Other providers (OpenAI-compatible)** and enter:
+
+| Setting | What to enter |
+| --- | --- |
+| **Chat model** | The exact model ID from your provider's catalog |
+| **Photo message model** | An image-capable model from the same provider; leave blank to use the chat model if it supports images |
+| **API base URL** | OpenRouter: `https://openrouter.ai/api/v1`; NanoGPT: `https://nano-gpt.com/api/v1` |
+| **Provider API key** | A key issued by the provider at that base URL |
+
+Use the base URL without `/chat/completions`; the app adds that route. When switching services, update the API key and both model IDs along with the URL. Model IDs and image support can differ between providers. Existing OpenRouter settings continue to work; older builds label this option **OpenRouter**.
+
+Compatibility requires bearer-key authentication, the Chat Completions API, and `response_format` with `json_schema`. NanoGPT documents these features, but it has not yet been live-tested with Venus Phone. Other compatible services and individual models may have additional limits. See [NanoGPT's Chat Completions documentation](https://docs.nano-gpt.com/api-reference/endpoint/chat-completion).
+
+This provider choice supplies both text messages and dialogue for experimental calls. Chatterbox speech, Whisper transcription, and the game's ComfyUI photo generation continue to run locally.
+
 ## Using it
 
 - **Chats:** everyone who has given you her number in that save.
-- **📷:** send her a photo. She reacts to what is in it. Location and other metadata are stripped first. On OpenRouter this needs a vision model; set one in Settings (default `deepseek/deepseek-v4.1-flash`).
+- **📷:** send her a photo. She reacts to what is in it. Location and other metadata are stripped first. Your selected model must accept images. For an OpenAI-compatible provider, choose its image-capable model under **Photo message model** in Settings.
 - **"She texts first" (⏱ in each chat):** off, about every 5, 15 or 30 minutes, every 1–8 hours, or random (5 minutes to 4 hours). Set per girl, along with how many texts in a row (1–10) she can send before you reply. Never between 11pm and 8am.
 - **Her replies:** she sends a varied number of texts each time (usually one or two, sometimes more), and now and then reacts to your text with an emoji.
 - **Her photos:** she sends one when you ask, or now and then on her own. Ask for a selfie, mirror pic, full body, timer shot or candid and she follows it; otherwise the kind of shot varies. They are drawn using the game's local ComfyUI. DM photo behavior and relationship-based photo tiers are adapted from **Photo Feature**, naudh1r's mod in **Venus Extracurriculars**; these features are not part of the base game's Photos feature.
@@ -47,7 +66,7 @@ If you play the game between phone sessions, Sync detects changed saves (includi
 - **PIN-protected.** A PIN unlocks the app, with lockouts after repeated wrong tries. Session cookies are `HttpOnly`, `SameSite=Strict` and `Secure`.
 - **API keys never cross the network unencrypted.** Keys can only be entered on the PC itself, or from the phone once HTTPS is on. They are stored encrypted with Windows DPAPI for your user account.
 - **Don't expose it.** Don't port-forward it, tunnel it or put it behind a proxy. It is built for a home network.
-- **The AI provider sees chats.** Chat text, and any photo you send, goes to the AI provider you choose (Gemini or OpenRouter), the same as the game does.
+- **The AI provider sees chats.** Chat text, and any photo you send, goes to your configured AI service: Gemini directly or the service at your chosen API base URL. Check that service's data-handling policies.
 - **Personal data stays in `app-data/`.** That folder next to the app holds your PIN hash, encrypted API keys, unsynced chats, your uploaded photos and, if HTTPS is on, the certificate files. It is git-ignored; never commit it.
 
 This is careful home-use hardening, not a professional security audit.

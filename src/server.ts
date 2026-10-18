@@ -513,7 +513,7 @@ function imageOf(raw: unknown): { mimeType: string; data: string } | undefined {
   return { mimeType, data };
 }
 
-/** With a photo attached, OpenRouter uses the vision model if one is set. Gemini models all see images. */
+/** Photo messages use the compatible provider's image-capable model override when one is set. */
 async function llmSettings(withImage: boolean): Promise<LlmSettings> {
   const gemini = config.provider === "gemini";
   const openrouterModel = withImage && config.openrouterVisionModel.trim() ? config.openrouterVisionModel : config.openrouterModel;
