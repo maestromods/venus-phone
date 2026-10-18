@@ -81,9 +81,22 @@
           <img id="thread-avatar" class="avatar" alt="" width="36" height="36" draggable="false">
         </button>
         <h1 id="thread-title"></h1>
-        <button type="button" id="call-btn" class="icon-btn" aria-label="Start a voice call">☎</button>
+        <button type="button" id="call-btn" class="icon-btn" aria-label="Start a voice call">
+          <svg class="call-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M7 3H4.8c-1 0-1.8.8-1.7 1.8.8 8.5 7.6 15.3 16.1 16.1 1 .1 1.8-.7 1.8-1.7V17l-5-2-1.7 2a14 14 0 0 1-7.3-7.3L9 8 7 3Z"/>
+          </svg>
+        </button>
         <button type="button" id="incoming-btn" class="icon-btn" aria-label="Texting settings for this chat" aria-expanded="false" aria-controls="incoming-panel">⏱</button>
       </header>
+      <section id="watch-panel" class="watch-panel" hidden aria-label="Watch together">
+        <div class="watch-heading">
+          <strong id="watch-title">Watch together</strong>
+          <button id="watch-close" class="icon-btn" type="button" aria-label="Stop watching together">×</button>
+        </div>
+        <div id="watch-player" class="watch-player"></div>
+        <p id="watch-status" class="watch-status" role="status"></p>
+        <a id="watch-external" target="_blank" rel="noopener noreferrer">Open on YouTube</a>
+      </section>
       <form id="incoming-panel" class="incoming-panel" hidden>
         <div class="stack">
           <label for="incoming-every">She texts you first</label>
@@ -198,6 +211,9 @@
           <input id="openrouterModel" name="openrouterModel" autocomplete="off" spellcheck="false">
           <label for="openrouterVisionModel">Model for messages with your photos (must support images; blank = same as above)</label>
           <input id="openrouterVisionModel" name="openrouterVisionModel" autocomplete="off" spellcheck="false">
+          <label for="openrouterVideoModel">YouTube analysis model (Gemini with video support)</label>
+          <input id="openrouterVideoModel" name="openrouterVideoModel" autocomplete="off" spellcheck="false">
+          <p class="muted">Watch together reads public YouTube videos through Google AI Studio. Analysis and timed chat replies use your API credits.</p>
           <label for="endpointUrl">Endpoint URL</label>
           <input id="endpointUrl" name="endpointUrl" type="url" autocomplete="off" spellcheck="false">
           <label for="openrouterKey">OpenRouter API key</label>

@@ -17,6 +17,7 @@ function fixture() {
     return elements.get(id);
   };
   const context = vm.createContext({ $, clock: 0, fixtureBlocked: true,
+    watchTogether: { close: async () => {} },
     performance: { now: () => context.clock },
     document: { querySelectorAll: () => [] },
     clearAttachment() {},

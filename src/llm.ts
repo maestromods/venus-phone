@@ -58,6 +58,9 @@ async function post(url: string, headers: Record<string, string>, body: unknown,
   if (!response.ok) {
     const envelope = (parsed as { error?: { message?: string } }).error;
     const detail = envelope?.message ?? "no details";
+    if (/video|youtube/i.test(detail)) {
+      throw new LlmError(`The AI service could not read this YouTube video (${detail}). Use a public video and a video-capable Gemini model in Settings.`);
+    }
     if (/image|vision|multimodal|modalit/i.test(detail)) {
       throw new LlmError(`This model can't look at photos (${detail}). Pick a vision model in Settings.`);
     }
@@ -80,6 +83,7 @@ async function callGemini(settings: LlmSettings, request: TextingRequest, signal
           parts: [
             { text: request.user },
             ...(request.images ?? []).map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.data } })),
+            ...(request.videos ?? []).map((url) => ({ fileData: { fileUri: url } })),
           ],
         },
       ],
@@ -119,17 +123,20 @@ async function callChat(settings: LlmSettings, request: TextingRequest, signal?:
     { Authorization: `Bearer ${settings.apiKey}` },
     {
       model: settings.model,
+      // YouTube URLs are supported by Google's AI Studio endpoint, not Vertex.
+      ...(request.videos?.length ? { provider: { only: ["Google AI Studio"], allow_fallbacks: false } } : {}),
       messages: [
         ...(request.system ? [{ role: "system", content: request.system }] : []),
         {
           role: "user",
-          content: request.images?.length
+          content: request.images?.length || request.videos?.length
             ? [
                 { type: "text", text: request.user },
-                ...request.images.map((image) => ({
+                ...(request.images ?? []).map((image) => ({
                   type: "image_url",
                   image_url: { url: `data:${image.mimeType};base64,${image.data}` },
                 })),
+                ...(request.videos ?? []).map((url) => ({ type: "video_url", video_url: { url } })),
               ]
             : request.user,
         },

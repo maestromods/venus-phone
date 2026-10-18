@@ -19,6 +19,8 @@ export interface AppConfig {
   openrouterModel: string;
   /** Used instead of openrouterModel when a message carries a photo. */
   openrouterVisionModel: string;
+  /** Separate analysis model; regular character replies still use the chat model. */
+  openrouterVideoModel: string;
   endpointUrl: string;
   thinking: ThinkingLevel;
   geminiKeyEnc: string | null;
@@ -38,6 +40,7 @@ const DEFAULTS: AppConfig = {
   geminiModel: "gemini-3.6-flash",
   openrouterModel: "deepseek/deepseek-v4.1-flash",
   openrouterVisionModel: "deepseek/deepseek-v4.1-flash",
+  openrouterVideoModel: "google/gemini-3.6-flash",
   endpointUrl: "https://openrouter.ai/api/v1",
   thinking: "low",
   geminiKeyEnc: null,

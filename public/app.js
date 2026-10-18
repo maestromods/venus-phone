@@ -2,8 +2,9 @@
 // textContent, never innerHTML.
 
 import { openVoicePanel } from "./voice.js";
+import { createWatchTogether } from "./watch.js";
 const $ = (id) => document.getElementById(id);
-$('call-btn').addEventListener('click', () => openVoicePanel({ charId: openCharId, name: $('thread-title').textContent, onClose: () => { if (openCharId) void openThread(openCharId); } }));
+$('call-btn').addEventListener('click', async () => { await watchTogether.close(); openVoicePanel({ charId: openCharId, name: $('thread-title').textContent, onClose: () => { if (openCharId) void openThread(openCharId); } }); });
 $('voice-studio').addEventListener('click', () => openVoicePanel());
 
 // ---- Theme (per device) ---------------------------------------------------------------------------
@@ -79,6 +80,13 @@ let settingsReturn = "contacts";
 let openCharId = null;
 let pollTimer = null;
 let lastRenderKey = "";
+const watchTogether = createWatchTogether({
+  api,
+  resize: (change) => preserveLatestMessage(change),
+  onThread: (thread) => {
+    if (current === "thread" && openCharId === thread.charId && !revealing && !editingMessage) renderThread(thread, false);
+  },
+});
 
 async function api(path, options = {}) {
   const init = { method: options.method ?? "GET", headers: {}, credentials: "same-origin" };
@@ -107,6 +115,7 @@ async function api(path, options = {}) {
 }
 
 function show(name) {
+  if (name !== "thread") void watchTogether.close();
   current = name;
   for (const v of views) $(`view-${v}`).hidden = v !== name;
   document.body.classList.toggle("in-thread", name === "thread");
@@ -362,6 +371,7 @@ $("thread-profile").addEventListener("click", async () => {
 
 // ---- Thread loading ------------------------------------------------------------------------------
 async function openThread(charId) {
+  if (openCharId !== charId) await watchTogether.close();
   profileClicks = [];
   threadBlocked = false;
   threadBusy = false;
@@ -443,6 +453,7 @@ function renderThread(thread, scroll, held = new Set()) {
     const bubble = el("div", { class: `bubble ${side}` });
     bubble.append(el("span", { class: "sr-only", text: mine ? "You: " : `${thread.name.split(" ")[0]}: ` }));
     if (m.text) bubble.append(document.createTextNode(m.text));
+    if (m.text) bubble.append(...watchTogether.cards(m.text, thread.charId, thread.name));
     if (m.photo) bubble.append(photoNode(thread, m));
     if (m.upload) {
       const src = `/api/upload/${thread.charId}/${m.upload.file}`;
@@ -562,16 +573,35 @@ function stopPolling() {
 
 // iOS Safari slides the page up under the keyboard instead of resizing it. Size the thread to
 // the visible viewport instead, and keep the newest messages in view as it changes.
+let viewportScrollFrame = 0;
+const atLatestMessage = (list) => list.scrollHeight - list.scrollTop - list.clientHeight < 120;
+function preserveLatestMessage(changeLayout) {
+  const list = $("messages");
+  // Measure BEFORE shrinking the list: an open keyboard can hide several hundred pixels,
+  // which otherwise looks like the reader deliberately scrolled away from the bottom.
+  const follow = current === "thread" && atLatestMessage(list);
+  const charId = openCharId;
+  changeLayout();
+  if (!follow) return;
+  list.scrollTop = list.scrollHeight;
+  cancelAnimationFrame(viewportScrollFrame);
+  viewportScrollFrame = requestAnimationFrame(() => {
+    viewportScrollFrame = 0;
+    if (current === "thread" && openCharId === charId) list.scrollTop = list.scrollHeight;
+  });
+}
+$("messages").addEventListener("scroll", () => {
+  // A deliberate scroll into history takes precedence over the pending layout correction.
+  if (!atLatestMessage($("messages"))) cancelAnimationFrame(viewportScrollFrame);
+}, { passive: true });
 function fitViewport() {
   const vv = window.visualViewport;
   const root = document.documentElement.style;
   if (!vv) return;
-  root.setProperty("--vv-height", `${Math.round(vv.height)}px`);
-  root.setProperty("--vv-top", `${Math.round(vv.offsetTop)}px`);
-  if (current === "thread") {
-    const list = $("messages");
-    if (list.scrollHeight - list.scrollTop - list.clientHeight < 200) list.scrollTop = list.scrollHeight;
-  }
+  preserveLatestMessage(() => {
+    root.setProperty("--vv-height", `${Math.round(vv.height)}px`);
+    root.setProperty("--vv-top", `${Math.round(vv.offsetTop)}px`);
+  });
 }
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", fitViewport);
@@ -601,8 +631,10 @@ draft.addEventListener("blur", () => {
   }, 100);
 });
 draft.addEventListener("input", () => {
-  draft.style.height = "auto";
-  draft.style.height = `${Math.min(draft.scrollHeight, 136)}px`;
+  preserveLatestMessage(() => {
+    draft.style.height = "auto";
+    draft.style.height = `${Math.min(draft.scrollHeight, 136)}px`;
+  });
 });
 draft.addEventListener("keydown", (event) => {
   // Enter sends on a keyboard; Shift+Enter makes a new line.
@@ -709,6 +741,7 @@ $("composer").addEventListener("submit", async (event) => {
   const list = $("messages");
   const optimistic = el("li", { class: "bubble mine" }, el("span", { class: "sr-only", text: "You: " }));
   if (text) optimistic.append(document.createTextNode(text));
+  if (text) optimistic.append(...watchTogether.cards(text, charId, $("thread-title").textContent));
   if (photo) optimistic.append(el("img", { class: "photo", src: photo.url, alt: "Your photo" }));
   list.append(optimistic);
   list.scrollTop = list.scrollHeight;
@@ -782,6 +815,7 @@ async function openSettings() {
   form.geminiModel.value = s.geminiModel;
   form.openrouterModel.value = s.openrouterModel;
   form.openrouterVisionModel.value = s.openrouterVisionModel ?? "";
+  form.openrouterVideoModel.value = s.openrouterVideoModel ?? "google/gemini-3.6-flash";
   form.endpointUrl.value = s.endpointUrl;
   form.thinking.value = s.thinking;
   form.photos.checked = s.photos;
@@ -823,6 +857,7 @@ $("settings-form").addEventListener("submit", async (event) => {
         geminiModel: form.geminiModel.value,
         openrouterModel: form.openrouterModel.value,
         openrouterVisionModel: form.openrouterVisionModel.value,
+        openrouterVideoModel: form.openrouterVideoModel.value,
         endpointUrl: form.endpointUrl.value,
         thinking: form.thinking.value,
         geminiKey: form.geminiKey.value,
