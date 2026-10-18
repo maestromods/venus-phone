@@ -562,16 +562,35 @@ function stopPolling() {
 
 // iOS Safari slides the page up under the keyboard instead of resizing it. Size the thread to
 // the visible viewport instead, and keep the newest messages in view as it changes.
+let viewportScrollFrame = 0;
+const atLatestMessage = (list) => list.scrollHeight - list.scrollTop - list.clientHeight < 120;
+function preserveLatestMessage(changeLayout) {
+  const list = $("messages");
+  // Measure BEFORE shrinking the list: an open keyboard can hide several hundred pixels,
+  // which otherwise looks like the reader deliberately scrolled away from the bottom.
+  const follow = current === "thread" && atLatestMessage(list);
+  const charId = openCharId;
+  changeLayout();
+  if (!follow) return;
+  list.scrollTop = list.scrollHeight;
+  cancelAnimationFrame(viewportScrollFrame);
+  viewportScrollFrame = requestAnimationFrame(() => {
+    viewportScrollFrame = 0;
+    if (current === "thread" && openCharId === charId) list.scrollTop = list.scrollHeight;
+  });
+}
+$("messages").addEventListener("scroll", () => {
+  // A deliberate scroll into history takes precedence over the pending layout correction.
+  if (!atLatestMessage($("messages"))) cancelAnimationFrame(viewportScrollFrame);
+}, { passive: true });
 function fitViewport() {
   const vv = window.visualViewport;
   const root = document.documentElement.style;
   if (!vv) return;
-  root.setProperty("--vv-height", `${Math.round(vv.height)}px`);
-  root.setProperty("--vv-top", `${Math.round(vv.offsetTop)}px`);
-  if (current === "thread") {
-    const list = $("messages");
-    if (list.scrollHeight - list.scrollTop - list.clientHeight < 200) list.scrollTop = list.scrollHeight;
-  }
+  preserveLatestMessage(() => {
+    root.setProperty("--vv-height", `${Math.round(vv.height)}px`);
+    root.setProperty("--vv-top", `${Math.round(vv.offsetTop)}px`);
+  });
 }
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", fitViewport);
@@ -601,8 +620,10 @@ draft.addEventListener("blur", () => {
   }, 100);
 });
 draft.addEventListener("input", () => {
-  draft.style.height = "auto";
-  draft.style.height = `${Math.min(draft.scrollHeight, 136)}px`;
+  preserveLatestMessage(() => {
+    draft.style.height = "auto";
+    draft.style.height = `${Math.min(draft.scrollHeight, 136)}px`;
+  });
 });
 draft.addEventListener("keydown", (event) => {
   // Enter sends on a keyboard; Shift+Enter makes a new line.
