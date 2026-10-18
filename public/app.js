@@ -2,8 +2,9 @@
 // textContent, never innerHTML.
 
 import { openVoicePanel } from "./voice.js";
+import { createWatchTogether } from "./watch.js";
 const $ = (id) => document.getElementById(id);
-$('call-btn').addEventListener('click', () => openVoicePanel({ charId: openCharId, name: $('thread-title').textContent, onClose: () => { if (openCharId) void openThread(openCharId); } }));
+$('call-btn').addEventListener('click', async () => { await watchTogether.close(); openVoicePanel({ charId: openCharId, name: $('thread-title').textContent, onClose: () => { if (openCharId) void openThread(openCharId); } }); });
 $('voice-studio').addEventListener('click', () => openVoicePanel());
 
 // ---- Theme (per device) ---------------------------------------------------------------------------
@@ -79,6 +80,13 @@ let settingsReturn = "contacts";
 let openCharId = null;
 let pollTimer = null;
 let lastRenderKey = "";
+const watchTogether = createWatchTogether({
+  api,
+  resize: (change) => preserveLatestMessage(change),
+  onThread: (thread) => {
+    if (current === "thread" && openCharId === thread.charId && !revealing && !editingMessage) renderThread(thread, false);
+  },
+});
 
 async function api(path, options = {}) {
   const init = { method: options.method ?? "GET", headers: {}, credentials: "same-origin" };
@@ -107,6 +115,7 @@ async function api(path, options = {}) {
 }
 
 function show(name) {
+  if (name !== "thread") void watchTogether.close();
   current = name;
   for (const v of views) $(`view-${v}`).hidden = v !== name;
   document.body.classList.toggle("in-thread", name === "thread");
@@ -362,6 +371,7 @@ $("thread-profile").addEventListener("click", async () => {
 
 // ---- Thread loading ------------------------------------------------------------------------------
 async function openThread(charId) {
+  if (openCharId !== charId) await watchTogether.close();
   profileClicks = [];
   threadBlocked = false;
   threadBusy = false;
@@ -443,6 +453,7 @@ function renderThread(thread, scroll, held = new Set()) {
     const bubble = el("div", { class: `bubble ${side}` });
     bubble.append(el("span", { class: "sr-only", text: mine ? "You: " : `${thread.name.split(" ")[0]}: ` }));
     if (m.text) bubble.append(document.createTextNode(m.text));
+    if (m.text) bubble.append(...watchTogether.cards(m.text, thread.charId, thread.name));
     if (m.photo) bubble.append(photoNode(thread, m));
     if (m.upload) {
       const src = `/api/upload/${thread.charId}/${m.upload.file}`;
@@ -730,6 +741,7 @@ $("composer").addEventListener("submit", async (event) => {
   const list = $("messages");
   const optimistic = el("li", { class: "bubble mine" }, el("span", { class: "sr-only", text: "You: " }));
   if (text) optimistic.append(document.createTextNode(text));
+  if (text) optimistic.append(...watchTogether.cards(text, charId, $("thread-title").textContent));
   if (photo) optimistic.append(el("img", { class: "photo", src: photo.url, alt: "Your photo" }));
   list.append(optimistic);
   list.scrollTop = list.scrollHeight;
@@ -803,6 +815,7 @@ async function openSettings() {
   form.geminiModel.value = s.geminiModel;
   form.openrouterModel.value = s.openrouterModel;
   form.openrouterVisionModel.value = s.openrouterVisionModel ?? "";
+  form.openrouterVideoModel.value = s.openrouterVideoModel ?? "google/gemini-3.6-flash";
   form.endpointUrl.value = s.endpointUrl;
   form.thinking.value = s.thinking;
   form.photos.checked = s.photos;
@@ -844,6 +857,7 @@ $("settings-form").addEventListener("submit", async (event) => {
         geminiModel: form.geminiModel.value,
         openrouterModel: form.openrouterModel.value,
         openrouterVisionModel: form.openrouterVisionModel.value,
+        openrouterVideoModel: form.openrouterVideoModel.value,
         endpointUrl: form.endpointUrl.value,
         thinking: form.thinking.value,
         geminiKey: form.geminiKey.value,

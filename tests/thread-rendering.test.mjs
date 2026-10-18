@@ -29,6 +29,7 @@ test('reactions stay visible throughout reply animation and controls unlock afte
   ] };
   const phases = [];
   const context = vm.createContext({ $: get, el: node, thread,
+    watchTogether: { cards: () => [] },
     document: { createTextNode: text => ({ text }), querySelectorAll: buttons },
     api: async url => { if (url.endsWith('/delete')) throw new Error('Request failed'); return thread; },
     confirm: () => true, startPolling() {}, stopPolling() {},

@@ -52,7 +52,8 @@ function messageStub(message: ChatMessage, firstName: string): string {
   }
   if (message.sender === "system") return `SYSTEM: ${flatText(message.text)}`;
   const photo = message.photo?.scene?.trim() ? ` [attached a photo: ${flatText(message.photo.scene)}]` : "";
-  return `${firstName.toUpperCase()}: ${flatText(message.text)}${photo}`;
+  const watch = typeof message.exWatchContext === "string" ? ` [Video source context: ${flatText(message.exWatchContext)}]` : "";
+  return `${firstName.toUpperCase()}: ${flatText(message.text)}${photo}${watch}`;
 }
 
 function stampedStubs(messages: ChatMessage[], firstName: string, season: Season): string[] {
@@ -86,6 +87,8 @@ export interface TextingRequest {
   user: string;
   schema: { name: string; schema: Record<string, unknown> };
   images?: TextingImage[];
+  /** Canonical public YouTube URLs; only the video-analysis request uses these. */
+  videos?: string[];
 }
 
 export interface TextingContext {

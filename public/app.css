@@ -87,6 +87,18 @@ button.small { min-height: 40px; padding: 0.4rem 0.9rem; }
 button:disabled { opacity: 0.55; cursor: default; }
 .icon-btn { min-width: 44px; padding: 0 0.6rem; font-size: 1.3rem; background: transparent; border-color: transparent; }
 .call-icon { display: block; width: 23px; height: 23px; margin: auto; }
+.youtube-card { display: grid; gap: .4rem; margin-top: .65rem; padding: .65rem; border: 1px solid currentColor; border-radius: 12px; white-space: normal; }
+.youtube-label { font-size: .75rem; font-weight: 700; letter-spacing: .02em; }
+.youtube-watch { font-size: .9rem; background: var(--panel); color: var(--text); border-radius: 9px; }
+.youtube-card a { color: inherit; font-size: .75rem; }
+.watch-panel { flex: none; padding: 0 .8rem .5rem; background: var(--panel); border-bottom: 1px solid var(--line); }
+.watch-heading { display: flex; align-items: center; gap: .5rem; }
+.watch-heading strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9rem; }
+.watch-player:not(:empty) { width: 100%; height: clamp(200px, 27vh, 300px); background: #000; border-radius: 10px; overflow: hidden; }
+.watch-player iframe { display: block; width: 100%; height: 100%; border: 0; }
+.watch-status { font-size: .75rem; color: var(--muted); margin: .4rem 0; }
+.watch-panel > a { color: var(--muted); font-size: .75rem; }
+.watch-panel.watch-typing .watch-player, .watch-panel.watch-typing > a { display: none; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 .list { list-style: none; margin: 0; padding: 0; }

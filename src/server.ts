@@ -15,6 +15,7 @@ import { GameFiles, isGameRunning } from "./game/files.js";
 import { LlmError, type LlmSettings, type Provider, type ThinkingLevel } from "./llm.js";
 import { Phone, PhoneError } from "./phone.js";
 import { LocalVoice, VoiceCalls } from "./voice.js";
+import { WatchTogether } from "./youtube.js";
 import { INCOMING_CHOICES, incomingSetting, loadIncoming, MAX_CHOICES, setIncoming, startIncomingLoop } from "./incoming.js";
 import {
   checkPin,
@@ -55,13 +56,14 @@ const SECURITY_HEADERS = {
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "no-referrer",
   "Content-Security-Policy":
-    "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; frame-src https://www.youtube-nocookie.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 
 let config: AppConfig;
 let phone: Phone;
 const localVoice = new LocalVoice();
 let calls: VoiceCalls;
+let watch: WatchTogether;
 let tls: TlsMaterial | null = null;
 
 async function main(): Promise<void> {
@@ -73,11 +75,13 @@ async function main(): Promise<void> {
   }
   phone = new Phone(files);
   calls = new VoiceCalls(phone, localVoice);
+  watch = new WatchTogether(phone);
   await phone.restore();
   await loadIncoming();
   startIncomingLoop(
     () => ({ playthroughId: phone.playthroughId(), contacts: phone.contactIds() }),
     async (charId, maxUnanswered) => {
+      if (watch.watching(charId)) return false;
       const hasKey = config.provider === "gemini" ? config.geminiKeyEnc : config.openrouterKeyEnc;
       if (!hasKey) return false;
       return phone.incoming(charId, await llmSettings(false), { enabled: config.photos, explicit: config.explicitPhotos }, maxUnanswered);
@@ -137,6 +141,7 @@ async function main(): Promise<void> {
 
   const shutdown = () => {
     calls.stop();
+    watch.stop();
     stopComfy();
     for (const server of servers) server.close();
     process.exit(0);
@@ -262,6 +267,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
 
   try {
     if (route === "POST /api/logout") {
+      watch.end(token);
       await calls.logout(token);
       endSession(token);
       res.setHeader("Set-Cookie", clearedCookie(secure));
@@ -284,6 +290,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
     if (route === "POST /api/calls/start") {
       const body = await readJson(req);
       if (typeof body.charId !== "string") throw new PhoneError("Choose a contact.");
+      watch.end(token);
       return sendJson(res, 200, await calls.start(token, body.charId, typeof body.voice === "string" ? body.voice : "default"));
     }
     const voiceRoute = /^\/api\/calls\/([a-f0-9-]{36})\/(heartbeat|turn|audio|ack|interrupt|transcribe|end)$/.exec(url.pathname);
@@ -303,6 +310,19 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
           result = await calls.transcribe(token, id, body.audio); break;
       }
       return sendJson(res, 200, result);
+    }
+    if (route === "POST /api/watch/start") {
+      const body = await readJson(req);
+      if (typeof body.charId !== "string" || typeof body.url !== "string" || body.url.length > 2000) throw new PhoneError("Choose a contact and a YouTube video.");
+      const llm = await llmSettings(false);
+      if (llm.provider === "openrouter") llm.model = config.openrouterVideoModel;
+      return sendJson(res, 200, await watch.start(token, body.charId, body.url, llm));
+    }
+    if (route === "POST /api/watch/end") { await readJson(req); return sendJson(res, 200, watch.end(token)); }
+    if (route === "POST /api/watch/tick") {
+      const body = await readJson(req);
+      if (typeof body.id !== "string" || typeof body.position !== "number" || typeof body.playing !== "boolean") throw new PhoneError("Invalid watch update.");
+      return sendJson(res, 200, await watch.tick(token, body.id, body.position, body.playing, await llmSettings(false)));
     }
     if (route === "GET /api/browse") return sendJson(res, 200, await browse(url.searchParams.get("path") ?? ""));
     if (route === "GET /api/playthroughs") {
@@ -347,6 +367,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
       config.pin = hashPin(body.next);
       await saveConfig(config);
       endAllSessions();
+      watch.endAll();
       res.setHeader("Set-Cookie", sessionCookie(createSession(), secure));
       return sendJson(res, 200, { ok: true });
     }
@@ -398,6 +419,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
           await llmSettings(Boolean(image)),
           { enabled: config.photos, explicit: config.explicitPhotos },
           image,
+          watch.contextFor(token, charId),
         );
         return sendJson(res, 200, { ...thread, incoming: pt ? incomingSetting(pt, charId) : null });
       }
@@ -511,6 +533,7 @@ function publicSettings() {
     geminiModel: config.geminiModel,
     openrouterModel: config.openrouterModel,
     openrouterVisionModel: config.openrouterVisionModel,
+    openrouterVideoModel: config.openrouterVideoModel,
     endpointUrl: config.endpointUrl,
     thinking: config.thinking,
     hasGeminiKey: Boolean(config.geminiKeyEnc),
@@ -533,6 +556,8 @@ async function updateSettings(body: Record<string, unknown>): Promise<void> {
   if (openrouterModel) config.openrouterModel = openrouterModel;
   const visionModel = text(body.openrouterVisionModel, 200);
   if (visionModel !== undefined) config.openrouterVisionModel = visionModel;
+  const videoModel = text(body.openrouterVideoModel, 200);
+  if (videoModel) config.openrouterVideoModel = videoModel;
   const endpointUrl = text(body.endpointUrl);
   if (endpointUrl) {
     let parsed: URL;

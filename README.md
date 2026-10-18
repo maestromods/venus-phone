@@ -92,6 +92,20 @@ node dist/server.js
 
 Settings can also come from environment variables: `VENUS_GAME_DIR`, `VENUS_PHONE_PORT` (HTTP, default 8790), `VENUS_PHONE_HTTPS_PORT` (default HTTP port + 1), `VENUS_PHONE_PIN`, `VENUS_PHONE_DATA`, and `VENUS_PHONE_HTTPS=1` to turn on HTTPS.
 
+## Watch YouTube together
+
+Send a public YouTube video link in a chat, tap **Watch together** on its card, wait for the video to be read, then press **Play**. The player stays above the conversation and she sends occasional in-character texts at relevant moments. You can reply normally below it. Opening the keyboard pauses and collapses the video so the newest messages stay visible; close the keyboard and press Play to continue.
+
+Reactions follow playback, pause when the video pauses or the page is hidden, and skip missed moments after seeking. Rewinding does not repeat delivered reactions. Closing the player, leaving the chat, changing saves, or starting a voice call ends the watch session. Scheduled unrelated openers are suspended while watching. Character boundaries and blocking still apply.
+
+The app reads the video once to prepare timestamped observations, then sends only observations reached during playback to the character's usual chat model. The first analysis can take time, and generated reactions have some latency. This is timed text commentary; it does not continuously listen to your microphone or speak over the video's audio. Already-shown reactions remain in chat and sync like other messages; watch reactions are not regenerated through the text-message controls.
+
+Gemini uses your configured Gemini model. OpenRouter uses **Settings → YouTube analysis model**, defaulting to `google/gemini-3.6-flash` on Google AI Studio, while character replies keep your normal chat model. Video analysis and reactions use API credits; longer videos can cost more. Public recorded videos are supported; private, unlisted, restricted, live, and embedding-disabled videos may not work. Unreadable videos show an error. AI observations/timing can be imperfect.
+
+Playback uses YouTube's privacy-enhanced embed, loaded only when you choose Watch together. The browser contacts YouTube; video URLs go to the selected AI provider for analysis. No video files are downloaded or stored by the app. Timestamped observations stay in memory while watching; observations associated with delivered reactions stay with your local conversation.
+
+Implementation references: [Gemini video understanding](https://ai.google.dev/gemini-api/docs/generate-content/video-understanding), [OpenRouter video inputs](https://openrouter.ai/docs/guides/overview/multimodal/videos), [YouTube IFrame Player API](https://developers.google.com/youtube/iframe_api_reference).
+
 ## Credits
 
 - **Venus Dev:** [Venus University](https://venus-dev.itch.io/venus-university), the base game.
