@@ -29,7 +29,7 @@ Using an HTTP LAN address cannot show a microphone prompt. A certificate warning
 
 - Chatterbox Turbo generates speech on the NVIDIA GPU, using its normal watermarking.
 - faster-whisper small.en transcribes speech on the CPU, with Silero speech filtering.
-- Your existing Gemini/OpenRouter settings still generate the character's dialogue. They receive text context and transcripts, not microphone audio. Internet and dialogue API usage are still required.
+- Your configured AI provider (Gemini directly or an OpenAI-compatible service such as OpenRouter or NanoGPT) generates the character's dialogue. It receives text context and transcripts, not microphone audio. Internet and dialogue API usage are still required. See [AI providers](README.md#ai-providers) for setup and compatibility requirements.
 - Speech audio is transient. Uploaded reference voices and model weights stay under voice/. The completed transcript stays in this build's app-data/session.json.
 - The speech worker uses private stdin/stdout and opens no extra network port. Existing PIN, LAN and cross-site protections apply.
 

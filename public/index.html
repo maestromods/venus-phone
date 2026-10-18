@@ -81,7 +81,11 @@
           <img id="thread-avatar" class="avatar" alt="" width="36" height="36" draggable="false">
         </button>
         <h1 id="thread-title"></h1>
-        <button type="button" id="call-btn" class="icon-btn" aria-label="Start a voice call">☎</button>
+        <button type="button" id="call-btn" class="icon-btn" aria-label="Start a voice call">
+          <svg class="call-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M7 3H4.8c-1 0-1.8.8-1.7 1.8.8 8.5 7.6 15.3 16.1 16.1 1 .1 1.8-.7 1.8-1.7V17l-5-2-1.7 2a14 14 0 0 1-7.3-7.3L9 8 7 3Z"/>
+          </svg>
+        </button>
         <button type="button" id="incoming-btn" class="icon-btn" aria-label="Texting settings for this chat" aria-expanded="false" aria-controls="incoming-panel">⏱</button>
       </header>
       <form id="incoming-panel" class="incoming-panel" hidden>
@@ -175,7 +179,7 @@
         <fieldset>
           <legend>AI service</legend>
           <label class="row"><input type="radio" name="provider" value="gemini"> Gemini</label>
-          <label class="row"><input type="radio" name="provider" value="openrouter"> OpenRouter</label>
+          <label class="row"><input type="radio" name="provider" value="openrouter"> Other providers (OpenAI-compatible)</label>
         </fieldset>
 
         <div data-for="gemini" class="stack">
@@ -194,15 +198,17 @@
         </div>
 
         <div data-for="openrouter" class="stack">
-          <label for="openrouterModel">OpenRouter model</label>
+          <p class="muted">Use OpenRouter, NanoGPT, or another compatible service. The API base URL, key, and model IDs must all come from the same provider.</p>
+          <label for="openrouterModel">Chat model</label>
           <input id="openrouterModel" name="openrouterModel" autocomplete="off" spellcheck="false">
-          <label for="openrouterVisionModel">Model for messages with your photos (must support images; blank = same as above)</label>
+          <label for="openrouterVisionModel">Photo message model (must support images; blank = chat model)</label>
           <input id="openrouterVisionModel" name="openrouterVisionModel" autocomplete="off" spellcheck="false">
-          <label for="endpointUrl">Endpoint URL</label>
+          <label for="endpointUrl">API base URL</label>
           <input id="endpointUrl" name="endpointUrl" type="url" autocomplete="off" spellcheck="false">
-          <label for="openrouterKey">OpenRouter API key</label>
+          <p class="muted">For example, https://openrouter.ai/api/v1 or https://nano-gpt.com/api/v1. Leave off /chat/completions. Choose models that support structured JSON replies.</p>
+          <label for="openrouterKey">Provider API key</label>
           <input id="openrouterKey" name="openrouterKey" type="password" autocomplete="off" spellcheck="false">
-          <label class="row"><input type="checkbox" name="clearOpenrouterKey"> Remove saved OpenRouter key</label>
+          <label class="row"><input type="checkbox" name="clearOpenrouterKey"> Remove saved provider key</label>
         </div>
 
         <label for="thinking">Thinking</label>
