@@ -1,0 +1,119 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile, writeFile } from 'node:fs/promises';
+import { Readable } from 'node:stream';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { root, fixture, respond, gate } from './helpers/session-fixture.mjs';
+import { hashPin, clearLoginFailures, createSession, COOKIE, admitLogin } from '../dist/security.js';
+import { completeStructured, validateEndpoint } from '../dist/llm.js';
+
+// Exercise the original routes without starting listeners, DPAPI or real config writes.
+const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+let source = await readFile(path.join(dist, 'server.js'), 'utf8');
+const startup = source.lastIndexOf('\nmain().catch(');
+assert.ok(startup > 0);
+source = source.slice(0, startup);
+const configImport = 'import { decryptSecret, encryptSecret, loadConfig, saveConfig } from "./config.js";';
+const tlsImport = 'import { ensureTls, localNames } from "./tls.js";';
+assert.ok(source.includes(configImport) && source.includes(tlsImport));
+source = source.replace(configImport, 'const decryptSecret=async v=>v??"", encryptSecret=async v=>v, loadConfig=async()=>{throw Error("Startup prohibited");}, saveConfig=async v=>{await globalThis.qaSaveConfig(v);};');
+source = source.replace(tlsImport, 'const ensureTls=async()=>{throw Error("TLS startup prohibited");}, localNames=()=>({ips:["127.0.0.1","192.168.50.1"],names:["localhost"]});');
+source = source.replace(/from "(\.\/[^\"]+)"/g, (_, relative) => `from "${pathToFileURL(path.join(dist, relative)).href}"`);
+source += '\nexport {handle,llmSettings}; export function configure(c,p){config=c;phone=p;tls=null;} export function getConfig(){return config;}';
+const modulePath = path.join(root, 'server-under-test.mjs');
+await writeFile(modulePath, source);
+const { handle, llmSettings, configure, getConfig } = await import(pathToFileURL(modulePath));
+const host = '192.168.50.1:8790', ip = '192.168.50.6';
+const cookie = COOKIE + '=' + createSession();
+const config = () => ({ pin: hashPin('123456'), port: 8790, provider: 'openrouter', endpointUrl: 'https://example.invalid/v1', openrouterKeyEnc: 'synthetic-key', geminiKeyEnc: null, openrouterModel: 'synthetic', openrouterVisionModel: '', geminiModel: 'synthetic', thinking: 'low', gameDir: '', photos: false, explicitPhotos: false, https: false });
+function pending(url, body, options = {}) {
+  const req = new Readable({ read() {} });
+  req.headers = { host, origin: 'http://' + host, 'sec-fetch-site': 'same-origin', ...(options.authed ? { cookie } : {}), ...options.headers };
+  let destroyed = false;
+  req.socket = { remoteAddress: options.ip ?? ip, destroy() { destroyed = true; } };
+  req.method = 'POST'; req.url = url;
+  const res = { headers: {}, setHeader(k, v) { this.headers[k] = v; }, writeHead(status, headers) { this.status = status; Object.assign(this.headers, headers); }, end(body) { this.body = body; } };
+  const promise = handle(req, res, options.secure ?? false).then(() => ({ ...res, destroyed }));
+  return { promise, req, finish(raw) { req.push(Buffer.from(raw ?? JSON.stringify(body))); req.push(null); } };
+}
+async function send(url, body, options) { const p = pending(url, body, options); p.finish(); return p.promise; }
+
+test('provider transport rejects cleartext LAN endpoints in settings and at request time', async () => {
+  configure(config()); globalThis.qaSaveConfig = async () => {};
+  assert.equal((await send('/api/login', {}, { ip: '203.0.113.10' })).destroyed, true);
+  assert.equal((await send('/api/login', {}, { headers: { host: 'outside.invalid:8790' } })).status, 421);
+  assert.equal((await send('/api/login', {}, { headers: { origin: 'https://outside.invalid', 'sec-fetch-site': 'cross-site' } })).status, 403);
+  assert.equal((await send('/api/settings', { endpointUrl: 'https://other.invalid' })).status, 401);
+  assert.equal((await send('/api/settings', { openrouterKey: 'synthetic-new' }, { authed: true })).status, 403);
+  const before = structuredClone(getConfig());
+  for (const endpointUrl of ['http://192.168.50.123:9999/v1', 'http://example.invalid/v1', 'ftp://127.0.0.1/v1', 'https://user:pass@example.invalid/v1']) {
+    const result = await send('/api/settings', { endpointUrl, openrouterModel: 'changed' }, { authed: true });
+    assert.equal(result.status, 400);
+    assert.deepEqual(getConfig(), before);
+  }
+  let called = false;
+  globalThis.fetch = async () => { called = true; throw new Error('No request should leave'); };
+  await assert.rejects(completeStructured({ ...(await llmSettings(false)), endpointUrl: 'http://192.168.50.123/v1' }, { user: 'Synthetic', schema: { name: 'test', schema: {} } }), /https/);
+  assert.equal(called, false);
+  for (const endpoint of ['http://localhost:1234/v1', 'http://127.0.0.1/v1', 'http://[::1]:1234/v1', 'https://api.example.invalid/v1']) assert.ok(validateEndpoint(endpoint));
+  for (const endpoint of ['http://localhost.evil.invalid', 'http://10.0.0.1', 'file:///tmp/test', 'http://[::ffff:192.168.1.2]']) assert.throws(() => validateEndpoint(endpoint));
+  const requests = [];
+  globalThis.fetch = async (url, options) => { requests.push({ url, options }); return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] })); };
+  await completeStructured(await llmSettings(false), { user: 'Synthetic', schema: { name: 'test', schema: {} } });
+  assert.equal(requests[0].url, 'https://example.invalid/v1/chat/completions');
+  assert.equal(requests[0].options.redirect, 'error');
+  delete globalThis.qaSaveConfig;
+});
+
+test('slow login bodies cannot verify PINs after the fifth failure; admission and cleanup stay bounded', async () => {
+  configure(config()); clearLoginFailures(ip);
+  for (let i = 0; i < 4; i++) assert.equal((await send('/api/login', { pin: 'wrong' })).status, 401);
+  const admitted = Array.from({ length: 12 }, () => pending('/api/login', { pin: 'wrong' }));
+  const statuses = [];
+  for (const request of admitted) { request.finish(); statuses.push((await request.promise).status); }
+  assert.deepEqual(statuses, [401, ...Array(11).fill(429)]);
+  assert.equal((await send('/api/login', { pin: '123456' })).status, 429);
+  clearLoginFailures(ip);
+  assert.equal((await send('/api/login', { pin: '123456' })).status, 200);
+  for (let i = 0; i < 5; i++) {
+    const malformed = pending('/api/login', {}); malformed.finish('{');
+    assert.equal((await malformed.promise).status, 400);
+    const aborted = pending('/api/login', {}); aborted.req.emit('aborted');
+    assert.equal((await aborted.promise).status, 400);
+  }
+  assert.equal((await send('/api/login', { pin: '123456' })).status, 200);
+  const reservations = Array.from({ length: 32 }, (_, i) => admitLogin('synthetic-' + i));
+  assert.ok(reservations.every(Boolean)); assert.equal(admitLogin('overflow'), null);
+  for (const release of reservations) { release(); release(); }
+  const released = admitLogin('after-cleanup'); assert.ok(released); released();
+});
+
+test('failed or busy folder changes leave both config and phone session unchanged', async () => {
+  const other = await fixture();
+  const { phone, files } = await fixture();
+  const initial = { ...config(), gameDir: files.gameDir };
+  configure(initial, phone);
+  let writes = 0;
+  globalThis.qaSaveConfig = async () => { writes++; };
+  await phone.deleteMessage('girl', 'base-1');
+  assert.equal((await send('/api/settings', { gameDir: other.files.gameDir, openrouterModel: 'changed' }, { authed: true })).status, 409);
+  assert.equal(getConfig(), initial); assert.equal(phone.files, files); assert.equal(writes, 0);
+  await phone.choose('1', '1', true);
+  phone.reserveVoiceCall('girl');
+  assert.equal((await send('/api/settings', { gameDir: other.files.gameDir }, { authed: true })).status, 409);
+  phone.releaseVoiceCall('girl');
+  assert.equal(getConfig(), initial); assert.equal(phone.files, files);
+  globalThis.qaSaveConfig = async () => { throw new Error('Synthetic disk failure'); };
+  await assert.rejects(send('/api/settings', { gameDir: other.files.gameDir }, { authed: true }), /Synthetic disk failure/);
+  assert.equal(getConfig(), initial); assert.equal(phone.files, files);
+  const entered = gate(), wait = gate();
+  globalThis.qaSaveConfig = async () => { entered.release(); await wait.promise; };
+  const changing = send('/api/settings', { gameDir: other.files.gameDir }, { authed: true });
+  await entered.promise;
+  assert.equal((await send('/api/settings', { openrouterModel: 'racing' }, { authed: true })).status, 409);
+  wait.release(); assert.equal((await changing).status, 200);
+  assert.equal(getConfig().gameDir, other.files.gameDir); assert.equal(phone.info(), null);
+  assert.equal(getConfig().openrouterModel, initial.openrouterModel);
+  delete globalThis.qaSaveConfig; respond();
+});

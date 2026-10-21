@@ -30,6 +30,19 @@ const SAFETY_OFF = [
 
 export class LlmError extends Error {}
 
+/** Credentials may use HTTP only on this machine, never over a LAN or public connection. */
+export function validateEndpoint(value: string): URL {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new LlmError("The endpoint URL is not a valid URL."); }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const loopback = host === "localhost" || host === "::1" || /^127\.\d+\.\d+\.\d+$/.test(host);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new LlmError("AI endpoints must use https://. Plain HTTP is only allowed for localhost or a loopback address on this PC.");
+  }
+  if (url.username || url.password || url.search || url.hash) throw new LlmError("Use an API base URL without credentials, a query, or a fragment.");
+  return url;
+}
+
 export async function completeStructured(settings: LlmSettings, request: TextingRequest, signal?: AbortSignal): Promise<unknown> {
   if (!settings.apiKey) throw new LlmError("No API key is set. Add one in Settings.");
   if (!settings.model.trim()) throw new LlmError("No model is set. Choose one in Settings.");
@@ -44,6 +57,7 @@ async function post(url: string, headers: Record<string, string>, body: unknown,
       method: "POST",
       headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
+      redirect: "error",
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {
@@ -114,7 +128,7 @@ interface GeminiResponse {
 }
 
 async function callChat(settings: LlmSettings, request: TextingRequest, signal?: AbortSignal): Promise<string> {
-  const base = settings.endpointUrl.replace(/\/+$/, "");
+  const base = validateEndpoint(settings.endpointUrl).href.replace(/\/+$/, "");
   const parsed = (await post(
     `${base}/chat/completions`,
     { Authorization: `Bearer ${settings.apiKey}` },

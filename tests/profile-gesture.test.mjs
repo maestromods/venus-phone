@@ -19,11 +19,11 @@ function fixture() {
   const context = vm.createContext({ $, clock: 0, fixtureBlocked: true,
     performance: { now: () => context.clock },
     document: { querySelectorAll: () => [] },
-    clearAttachment() {},
+    clearAttachment() {}, stopPolling() {},
     api: async (url, options) => { calls.push({ url, options }); return { charId: 'girl', blocked: false }; },
     revealReplies: async (_thread, before) => { assert.ok(before.has('old')); },
   });
-  vm.runInContext(`let current='thread', openCharId='girl', revealing=false, editingMessage=false, lastRenderKey='';
+  vm.runInContext(`let current='thread', openCharId='girl', attached=null, revealing=false, editingMessage=false, lastRenderKey='';
     function show(name) { current=name; }
     async function refreshThread() { threadBlocked=fixtureBlocked; threadBusy=false; }
     ${gesture}

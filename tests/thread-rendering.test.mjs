@@ -35,7 +35,10 @@ test('reactions stay visible throughout reply animation and controls unlock afte
     setTimeout: callback => { phases.push(reactions()); queueMicrotask(callback); },
   });
   await vm.runInContext(`
-    let openCharId='girl',lastRenderKey='',threadBlocked=false,threadBusy=false,unblockingCharId=null,profileClicks=[];
+    let current='thread',openCharId='girl',lastRenderKey='',threadBlocked=false,threadBusy=false,unblockingCharId=null,profileClicks=[];
+    let threadGeneration=0, threadRequest=0, revealToken=null;
+    const sendingChats=new Set();
+    function isCurrentThread(id, generation) { return current==='thread' && openCharId===id && threadGeneration===generation; }
     ${section}
     revealReplies({ ...thread, busy: true }, new Set(['old','p']))
   `, context);
