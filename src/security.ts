@@ -74,7 +74,13 @@ export function isOwnHost(hostHeader: string | undefined, own: { ips: string[]; 
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const sessions = new Map<string, number>();
-export const COOKIE = "vphone_voice_experiment";
+/** Cookies share a host across ports. Never reuse the old HTTPS cookie on an HTTP build:
+ * browsers refuse to replace a Secure cookie over HTTP, silently breaking a valid PIN login.
+ * Separate listeners also avoid overwriting each other's sessions when two builds are running.
+ */
+export function sessionCookieName(secure: boolean, port: number): string {
+  return `${secure ? "__Host-vphone_https" : "vphone_http"}_${port}`;
+}
 
 export function createSession(): string {
   const token = randomBytes(32).toString("hex");
@@ -90,11 +96,12 @@ export function endSession(token: string | undefined): void {
   if (token) sessions.delete(token);
 }
 
-export function sessionOf(req: IncomingMessage): string | undefined {
+export function sessionOf(req: IncomingMessage, secure: boolean, port: number): string | undefined {
   const header = req.headers.cookie ?? "";
+  const expectedName = sessionCookieName(secure, port);
   for (const part of header.split(";")) {
     const [name, ...rest] = part.trim().split("=");
-    if (name === COOKIE) {
+    if (name === expectedName) {
       const token = rest.join("=");
       const expires = sessions.get(token);
       if (expires && expires > Date.now()) return token;
@@ -104,12 +111,12 @@ export function sessionOf(req: IncomingMessage): string | undefined {
   return undefined;
 }
 
-export function sessionCookie(token: string, secure: boolean): string {
-  return `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? "; Secure" : ""}`;
+export function sessionCookie(token: string, secure: boolean, port: number): string {
+  return `${sessionCookieName(secure, port)}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? "; Secure" : ""}`;
 }
 
-export function clearedCookie(secure: boolean): string {
-  return `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? "; Secure" : ""}`;
+export function clearedCookie(secure: boolean, port: number): string {
+  return `${sessionCookieName(secure, port)}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? "; Secure" : ""}`;
 }
 
 // ---- Throttling -----------------------------------------------------------------------------------

@@ -240,6 +240,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
 
   const ip = req.socket.remoteAddress ?? "";
   const route = `${method} ${url.pathname}`;
+  const cookiePort = secure ? httpsPort() : config.port;
 
   if (route === "POST /api/login") {
     const locked = loginLockedFor(ip);
@@ -255,7 +256,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
         return sendJson(res, 401, { error: "Wrong PIN." });
       }
       clearLoginFailures(ip);
-      res.setHeader("Set-Cookie", sessionCookie(createSession(), secure));
+      res.setHeader("Set-Cookie", sessionCookie(createSession(), secure, cookiePort));
       return sendJson(res, 200, { ok: true });
     } catch (err) {
       if (err instanceof BodyError) return sendJson(res, 400, { error: err.message });
@@ -263,7 +264,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
     } finally { release(); }
   }
 
-  const token = sessionOf(req);
+  const token = sessionOf(req, secure, cookiePort);
   if (route === "GET /api/status") {
     if (!token) return sendJson(res, 200, { authed: false });
     return sendJson(res, 200, await status());
@@ -274,7 +275,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
     if (route === "POST /api/logout") {
       await calls.logout(token);
       endSession(token);
-      res.setHeader("Set-Cookie", clearedCookie(secure));
+      res.setHeader("Set-Cookie", clearedCookie(secure, cookiePort));
       return sendJson(res, 200, { ok: true });
     }
     if (route === "GET /api/voice/status") return sendJson(res, 200, localVoice.status());
@@ -362,7 +363,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
         config = next;
       } finally { settingsUpdating = false; }
       endAllSessions();
-      res.setHeader("Set-Cookie", sessionCookie(createSession(), secure));
+      res.setHeader("Set-Cookie", sessionCookie(createSession(), secure, cookiePort));
       return sendJson(res, 200, { ok: true });
     }
 

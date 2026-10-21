@@ -141,9 +141,13 @@ function el(tag, props = {}, ...children) {
 
 // ---- Start-up --------------------------------------------------------------------------------
 
-async function boot() {
+async function boot(afterLogin = false) {
   const status = await api("/api/status");
-  if (!status.authed) return show("lock");
+  if (!status.authed) {
+    show("lock");
+    if (afterLogin) throw new Error("Your PIN was accepted, but this browser did not keep the login cookie. Allow cookies for this site, then try again.");
+    return;
+  }
   if (!status.gameReady) return openFolder("");
   if (!status.session) return openPicker();
   if (!status.hasKey) {
@@ -161,7 +165,7 @@ $("lock-form").addEventListener("submit", async (event) => {
   try {
     await api("/api/login", { body: { pin: $("pin").value } });
     $("pin").value = "";
-    await boot();
+    await boot(true);
   } catch (err) {
     $("lock-error").textContent = err.message;
   }
