@@ -117,6 +117,24 @@ export function clearedCookie(secure: boolean): string {
 const failures = new Map<string, { count: number; until: number }>();
 const MAX_FAILURES = 5;
 const LOCK_MS = 60_000;
+const pendingLogins = new Map<string, number>();
+let pendingLoginTotal = 0;
+
+/** Reserve bounded body-parsing capacity; callers must also recheck lockout before PIN work. */
+export function admitLogin(ip: string): (() => void) | null {
+  const count = pendingLogins.get(ip) ?? 0;
+  if (count >= 3 || pendingLoginTotal >= 32) return null;
+  pendingLogins.set(ip, count + 1);
+  pendingLoginTotal++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = (pendingLogins.get(ip) ?? 1) - 1;
+    if (remaining) pendingLogins.set(ip, remaining); else pendingLogins.delete(ip);
+    pendingLoginTotal--;
+  };
+}
 
 export function loginLockedFor(ip: string): number {
   const entry = failures.get(ip);

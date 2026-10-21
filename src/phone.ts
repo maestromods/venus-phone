@@ -61,11 +61,14 @@ interface Delta {
   blocked: string[];
   /** Explicit unblocks, including blocks inherited from the game's save. */
   unblocked?: string[];
-  /** Her texts you haven't opened yet, per girl; carried into the game's unread badge on sync. */
+  /** Unsynced incoming texts still unread; reset after sync, never a displayed total. */
   unread?: Record<string, number>;
+  /** Known message IDs opened in Phone; a newer game's unseen messages are left alone. */
+  read?: Record<string, string[]>;
 }
 
 interface SessionState {
+  gameDir?: string;
   playthroughId: string;
   baseSaveId: string;
   baseSaveDate: number;
@@ -101,6 +104,7 @@ export class Phone {
   private characters = new Map<string, Character>();
   private inFlight = new Set<string>();
   private syncing = false;
+  private selecting = false;
   private rendering = new Set<string>();
   private uploads: UploadIndex = {};
   /** Recent texts she started, for in-app notifications. */
@@ -110,6 +114,7 @@ export class Phone {
 
   private assertNotSyncing(): void {
     if (this.syncing) throw new PhoneError("Wait for sync to finish.", 409);
+    if (this.selecting) throw new PhoneError("Wait for the save or game folder to finish changing.", 409);
   }
 
   reserveVoiceCall(charId: string): void {
@@ -142,11 +147,35 @@ export class Phone {
   }
 
   setGameFiles(files: GameFiles): void {
+    this.assertCanChangeFolder();
+    this.replaceGameFiles(files);
+  }
+
+  private assertCanChangeFolder(): void {
     this.assertNotSyncing();
     if (this.inFlight.size) throw new PhoneError("Wait for replies before changing the game folder.", 409);
+    if (this.rendering.size) throw new PhoneError("Wait for photos before changing the game folder.", 409);
+    if (this.pendingCount()) throw new PhoneError("You have unsynced changes. Sync them first, or use Change save to explicitly discard them before changing the game folder.", 409);
+  }
+
+  /** Keep the current session usable if validation or saving the new settings fails. */
+  async changeGameFiles(files: GameFiles, commitSettings: () => Promise<void>): Promise<void> {
+    this.assertCanChangeFolder();
+    this.selecting = true;
+    try {
+      if (!(await files.exists())) throw new PhoneError("That game folder is no longer available.");
+      await commitSettings();
+      this.replaceGameFiles(files);
+    } finally { this.selecting = false; }
+  }
+
+  private replaceGameFiles(files: GameFiles): void {
     this.files = files;
     this.state = null;
     this.base = null;
+    this.record = null;
+    this.characters.clear();
+    this.notices = [];
   }
 
   async restore(): Promise<void> {
@@ -158,6 +187,7 @@ export class Phone {
     let saved: SessionState;
     try {
       saved = JSON.parse(await fs.readFile(SESSION_PATH, "utf8")) as SessionState;
+      if (saved.gameDir && path.resolve(saved.gameDir) !== path.resolve(this.files.gameDir)) return;
       saved.delta.unread ??= {};
       await this.load(saved);
     } catch {
@@ -170,8 +200,13 @@ export class Phone {
       if (!character) continue;
       for (const message of added) {
         if (!message.photo?.pending) continue;
+        if (!isPhotoFile(message.photo.file)) { message.photo.pending = false; message.photo.failed = true; continue; }
         try {
-          await fs.access(path.join(this.files.photosDir(saved.playthroughId, charId), message.photo.file));
+          const dest = path.join(this.files.photosDir(saved.playthroughId, charId), message.photo.file);
+          const exists = await fs.access(dest).then(() => true, () => false);
+          // Adopt legacy pending photos before the app can delete their messages or allocate again.
+          const owner = await claimPhoto(dest, message.id, exists);
+          if (!exists || owner.messageId !== message.id || !owner.completed) throw new Error("Photo is not complete.");
           message.photo = { tier: message.photo.tier, scene: message.photo.scene, file: message.photo.file };
         } catch {
           void this.drawPhoto(saved.playthroughId, character, message);
@@ -185,7 +220,7 @@ export class Phone {
     if (this.state) await writeJsonAtomic(SESSION_PATH, this.state);
   }
 
-  private async load(state: SessionState): Promise<void> {
+  private async load(state: SessionState, persist = false): Promise<void> {
     const base = await this.files.readSave(state.playthroughId, state.baseSaveId);
     const record = await this.files.readRecord(state.playthroughId);
     const characters = new Map<string, Character>();
@@ -193,8 +228,14 @@ export class Phone {
       const character = await this.files.readCharacter(charId);
       if (character) characters.set(charId, character);
     }
-    this.state = state;
+    state.gameDir = this.files.gameDir;
     state.baseFingerprint ??= fingerprint(base);
+    // Older sessions carried already-synced unread totals back into the delta.
+    for (const [id, count] of Object.entries(state.delta.unread ?? {})) {
+      state.delta.unread![id] = Math.min(count, (state.delta.added[id] ?? []).filter(m => m.sender === "contact").length);
+    }
+    if (persist) await writeJsonAtomic(SESSION_PATH, state);
+    this.state = state;
     this.base = base;
     this.record = record;
     this.characters = characters;
@@ -203,11 +244,13 @@ export class Phone {
   pendingCount(): number {
     if (!this.state) return 0;
     return Object.values(this.state.delta.added).reduce((n, list) => n + list.length, 0)
-      + Object.values(this.state.delta.deleted ?? {}).reduce((n, list) => n + list.length, 0);
+      + Object.values(this.state.delta.deleted ?? {}).reduce((n, list) => n + list.length, 0)
+      + Object.keys(this.state.delta.read ?? {}).length;
   }
 
   unreadTotal(): number {
-    return Object.values(this.state?.delta.unread ?? {}).reduce((n, c) => n + c, 0);
+    if (!this.state || !this.base || !this.record) return 0;
+    return Object.values(this.view().bunnyboard.conversations).reduce((n, c) => n + (c.unread ?? 0), 0);
   }
 
   playthroughId(): string | null {
@@ -235,13 +278,16 @@ export class Phone {
   async choose(playthroughId: string, saveId: string, discard: boolean): Promise<void> {
     this.assertNotSyncing();
     if (this.inFlight.size) throw new PhoneError("Wait for replies before changing saves.", 409);
+    if (this.rendering.size) throw new PhoneError("Wait for photos before changing saves.", 409);
     if (this.pendingCount() > 0 && !discard) {
       throw new PhoneError("You have chats that are not synced yet. Sync first, or choose again to discard them.", 409);
     }
-    const save = await this.files.readSave(playthroughId, saveId);
-    await this.load({ playthroughId, baseSaveId: saveId, baseSaveDate: save.saveDate, delta: emptyDelta() });
-    this.notices = [];
-    await this.persist();
+    this.selecting = true;
+    try {
+      const save = await this.files.readSave(playthroughId, saveId);
+      await this.load({ playthroughId, baseSaveId: saveId, baseSaveDate: save.saveDate, delta: emptyDelta() }, true);
+      this.notices = [];
+    } finally { this.selecting = false; }
   }
 
   private season(): Season {
@@ -273,7 +319,7 @@ export class Phone {
 
   contacts() {
     const save = this.view();
-    const { record, state } = this.require();
+    const { record } = this.require();
     return semesterOf(record, save.semester).chars
       .map((charId) => {
         const character = this.characters.get(charId);
@@ -291,7 +337,7 @@ export class Phone {
           lastText: last ? displayText(last) || (hasPhoto ? "📷 Photo" : "") : "",
           lastFromMe: last?.sender === "player",
           busy: this.inFlight.has(charId),
-          unread: state.delta.unread?.[charId] ?? 0,
+          unread: save.bunnyboard.conversations[charId]?.unread ?? 0,
           recency: messageOrder(save, charId),
         };
       })
@@ -310,12 +356,14 @@ export class Phone {
 
   /** Opening a thread marks her texts read. */
   async markRead(charId: string): Promise<void> {
-    if (this.syncing) return;
-    const unread = this.state?.delta.unread;
-    if (unread?.[charId]) {
-      delete unread[charId];
-      await this.persist();
-    }
+    if (this.syncing || this.selecting || !this.state) return;
+    const conversation = this.view().bunnyboard.conversations[charId];
+    if (!conversation?.unread) return;
+    const { delta } = this.state;
+    (delta.unread ??= {})[charId] = 0;
+    const baseUnread = this.base?.bunnyboard.conversations[charId]?.unread ?? 0;
+    if (baseUnread) (delta.read ??= {})[charId] = conversation.messages.filter(m => m.sender === "contact").map(m => m.id);
+    await this.persist();
   }
 
   thread(charId: string) {
@@ -538,6 +586,8 @@ export class Phone {
       const kept = await this.keepPhotoPromise(llm, request, character, save, initial, allowedPhoto, possiblePhoto, photoShot, requested);
       const reply = kept.reply;
 
+      if (this.state !== state) throw new PhoneError("The selected save changed. Try again.", 409);
+
       const sent: ChatMessage = { id: randomUUID(), sender: "player", text: trimmed, date: save.date, time: save.time };
       // Kept as an "ex" field, the convention the game's community mods use for extra data.
       if (offerReaction && reply.reaction) sent.exReaction = reply.reaction;
@@ -551,6 +601,7 @@ export class Phone {
         await writeJsonAtomic(UPLOAD_INDEX_PATH, this.uploads);
       }
       if (state.unanswered) delete state.unanswered[charId];
+      if (this.state !== state) throw new PhoneError("The selected save changed. Try again.", 409);
       await this.file(charId, character, save, [sent], reply, kept.allowed, false);
       return this.thread(charId);
     } finally {
@@ -564,6 +615,7 @@ export class Phone {
    */
   async incoming(charId: string, llm: LlmSettings, photoSwitches: PhotoSwitches, maxUnanswered = 1): Promise<boolean> {
     if (!this.state || !this.base) return false;
+    const state = this.state;
     const character = this.characters.get(charId);
     if (!character) return false;
     const save = this.view();
@@ -599,7 +651,8 @@ export class Phone {
       if (initial.messages.length === 0) return false;
       const kept = await this.keepPhotoPromise(llm, request, character, save, initial, allowedPhoto, possiblePhoto, photoShot, false);
       const reply = kept.reply;
-      const unanswered = (this.state.unanswered ??= {});
+      if (this.state !== state) return false;
+      const unanswered = (state.unanswered ??= {});
       unanswered[charId] = (unanswered[charId] ?? 0) + 1;
       const replies = await this.file(charId, character, save, [], reply, kept.allowed, true);
       const first = replies[0];
@@ -773,8 +826,9 @@ export class Phone {
         );
       }
       if (verdict.send && lastReply) {
-        const file = await this.reservePhotoName(state.playthroughId, character, save);
+        const file = await this.reservePhotoName(state.playthroughId, character, save, lastReply.id);
         lastReply.photo = { tier: verdict.tier, scene: reply.photoPrompt.trim(), file, pending: true };
+        await this.persist();
         void this.drawPhoto(state.playthroughId, character, lastReply);
       }
     }
@@ -800,11 +854,13 @@ export class Phone {
     return full;
   }
 
-  private async reservePhotoName(playthroughId: string, character: Character, save: SaveFile): Promise<string> {
+  private async reservePhotoName(playthroughId: string, character: Character, save: SaveFile, messageId: string): Promise<string> {
     const slug = character.firstName.toLowerCase().replace(/[^a-z0-9]/g, "") || character.charId.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8);
+    const dir = this.files.photosDir(playthroughId, character.charId);
+    await fs.mkdir(dir, { recursive: true });
     const taken = new Set<string>();
     try {
-      for (const name of await fs.readdir(this.files.photosDir(playthroughId, character.charId))) taken.add(name);
+      for (const name of await fs.readdir(dir)) taken.add(name.replace(/\.phone\.json$/, ""));
     } catch {
       // No photos yet.
     }
@@ -815,29 +871,44 @@ export class Phone {
       const match = pattern.exec(name);
       if (match) highest = Math.max(highest, Number(match[1]));
     }
-    return `${slug}_chat_${String(highest + 1).padStart(3, "0")}.png`;
+    // A durable, exclusive claim survives deletion, render failure and process restarts.
+    // Keep claims even after completion so a missing/deleted image can never be reassigned.
+    while (++highest <= 999999) {
+      const file = `${slug}_chat_${String(highest).padStart(3, "0")}.png`;
+      try {
+        await fs.writeFile(path.join(dir, file + ".phone.json"), JSON.stringify({ messageId, completed: false }), { flag: "wx" });
+        return file;
+      } catch (err) { if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err; }
+    }
+    throw new PhoneError("This contact's photo storage is full.");
   }
 
   private async drawPhoto(playthroughId: string, character: Character, message: ChatMessage): Promise<void> {
     const photo = message.photo;
     if (!photo) return;
+    const files = this.files;
+    const state = this.state;
     this.rendering.add(message.id);
     const settle = async (next: ChatPhoto) => {
       message.photo = next;
       this.rendering.delete(message.id);
       // The message object lives in the delta, so persisting the session records the outcome.
       // This runs in the background, so a failed write is logged rather than thrown.
-      if (this.state?.playthroughId === playthroughId) {
+      if (this.state === state) {
         await this.persist().catch((err) => console.warn(`[photo] couldn't save the photo's result: ${(err as Error).message}`));
       }
     };
     try {
-      const dest = path.join(this.files.photosDir(playthroughId, character.charId), photo.file);
+      const dest = path.join(files.photosDir(playthroughId, character.charId), photo.file);
+      if (!isPhotoFile(photo.file)) throw new Error("Invalid photo filename.");
+      const owner = await claimPhoto(dest, message.id, false);
+      if (owner.messageId !== message.id) throw new Error("This photo filename belongs to another message.");
       const prompts = buildPhotoPrompt(character, photo.tier, photo.scene);
       // Logged like the game logs its own renders, so a picture that misses can be traced.
       console.log(`[photo] ${character.firstName} (${photo.tier}): "${photo.scene}"`);
       console.log(`[photo] → ${prompts.positive.replace(/\n\n/g, " | ")}`);
-      await renderPhoto(this.files, prompts, dest, character.lora);
+      await renderPhoto(files, prompts, dest, character.lora);
+      await writeJsonAtomic(dest + ".phone.json", { messageId: message.id, completed: true });
       await settle({ tier: photo.tier, scene: photo.scene, file: photo.file });
     } catch (err) {
       console.warn(`[photo] ${character.firstName}'s photo failed: ${(err as Error).message}`);
@@ -918,7 +989,6 @@ export class Phone {
     const saveId = await this.files.writeNewSlotSave(state.playthroughId, merged);
 
     const written = await this.files.readSave(state.playthroughId, saveId);
-    const unread = state.delta.unread ?? {};
     await this.load({
       playthroughId: state.playthroughId,
       baseSaveId: saveId,
@@ -926,11 +996,32 @@ export class Phone {
       delta: emptyDelta(),
       unanswered: state.unanswered ?? {},
     });
-    // Unread stays unread in the app too.
-    if (this.state) this.state.delta.unread = { ...unread };
     await this.persist();
     return { requiresConfirmation: false as const, saveId, rebased, messages };
   }
+}
+
+async function readPhotoReservation(dest: string): Promise<{ messageId: string; completed: boolean } | null> {
+  try {
+    const value = JSON.parse(await fs.readFile(dest + ".phone.json", "utf8"));
+    if (typeof value.messageId !== "string" || typeof value.completed !== "boolean") throw new Error("Invalid photo reservation.");
+    return value;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null; // Photos created by older versions/the game.
+    throw err;
+  }
+}
+
+async function claimPhoto(dest: string, messageId: string, completed: boolean) {
+  let owner = await readPhotoReservation(dest);
+  if (!owner) {
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    try { await fs.writeFile(dest + ".phone.json", JSON.stringify({ messageId, completed }), { flag: "wx" }); }
+    catch (err) { if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err; }
+    owner = await readPhotoReservation(dest);
+  }
+  if (!owner) throw new Error("Missing photo reservation.");
+  return owner;
 }
 
 const PHOTO_WORDS = /\b(?:pics?|photos?|pictures?|selfies?|snaps?)\b/i;
@@ -1071,12 +1162,16 @@ function checkedImage(image: TextingImage): Buffer {
 export function applyDelta(base: SaveFile, delta: Delta, forGame: boolean): SaveFile {
   const save: SaveFile = structuredClone(base);
   save.bunnyboard.conversations ??= {};
+  for (const [charId, conversation] of Object.entries(save.bunnyboard.conversations)) {
+    const unread = conversation.unread ?? 0;
+    const seen = new Set([...(delta.read?.[charId] ?? []), ...(delta.deleted?.[charId] ?? [])]);
+    const unreadMessages = unread > 0 ? conversation.messages.filter(m => m.sender === "contact").slice(-unread) : [];
+    conversation.unread = Math.max(0, unread - unreadMessages.filter(m => seen.has(m.id)).length);
+  }
   for (const [charId, ids] of Object.entries(delta.deleted ?? {})) {
     const conversation = save.bunnyboard.conversations[charId];
     if (conversation) {
-      const removed = conversation.messages.filter((m) => ids.includes(m.id) && m.sender === "contact").length;
       conversation.messages = conversation.messages.filter((m) => !ids.includes(m.id));
-      conversation.unread = Math.max(0, (conversation.unread ?? 0) - removed);
     }
   }
   for (const [charId, added] of Object.entries(delta.added)) {
@@ -1094,7 +1189,10 @@ export function applyDelta(base: SaveFile, delta: Delta, forGame: boolean): Save
         return copy;
       });
     conversation.messages = [...conversation.messages, ...fresh];
-    if (forGame) conversation.unread = (conversation.unread ?? 0) + (delta.unread?.[charId] ?? 0);
+    // Count only new, unread contact messages. Already-synced messages cannot increment twice.
+    const pendingUnread = Math.max(0, delta.unread?.[charId] ?? 0);
+    const unreadIds = new Set(pendingUnread > 0 ? added.filter(m => m.sender === "contact").slice(-pendingUnread).map(m => m.id) : []);
+    conversation.unread = (conversation.unread ?? 0) + fresh.filter(m => unreadIds.has(m.id)).length;
     save.bunnyboard.conversations[charId] = conversation;
   }
   for (const [charId, summary] of Object.entries(delta.summaries)) {

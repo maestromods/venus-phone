@@ -12,11 +12,12 @@ import { fileURLToPath } from "node:url";
 import { stopComfy } from "./comfy.js";
 import { decryptSecret, encryptSecret, loadConfig, saveConfig, type AppConfig } from "./config.js";
 import { GameFiles, isGameRunning } from "./game/files.js";
-import { LlmError, type LlmSettings, type Provider, type ThinkingLevel } from "./llm.js";
+import { LlmError, validateEndpoint, type LlmSettings, type Provider, type ThinkingLevel } from "./llm.js";
 import { Phone, PhoneError } from "./phone.js";
 import { LocalVoice, VoiceCalls } from "./voice.js";
 import { INCOMING_CHOICES, incomingSetting, loadIncoming, MAX_CHOICES, setIncoming, startIncomingLoop } from "./incoming.js";
 import {
+  admitLogin,
   checkPin,
   clearedCookie,
   clearLoginFailures,
@@ -243,14 +244,23 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
   if (route === "POST /api/login") {
     const locked = loginLockedFor(ip);
     if (locked > 0) return sendJson(res, 429, { error: `Too many tries. Wait ${Math.ceil(locked / 1000)} seconds.` });
-    const body = await readJson(req);
-    if (!config.pin || !isPinAttempt(body.pin) || !checkPin(body.pin, config.pin)) {
-      recordLoginFailure(ip);
-      return sendJson(res, 401, { error: "Wrong PIN." });
-    }
-    clearLoginFailures(ip);
-    res.setHeader("Set-Cookie", sessionCookie(createSession(), secure));
-    return sendJson(res, 200, { ok: true });
+    const release = admitLogin(ip);
+    if (!release) return sendJson(res, 429, { error: "Too many login requests. Try again shortly." });
+    try {
+      const body = await readJson(req);
+      const remaining = loginLockedFor(ip);
+      if (remaining > 0) return sendJson(res, 429, { error: `Too many tries. Wait ${Math.ceil(remaining / 1000)} seconds.` });
+      if (!config.pin || !isPinAttempt(body.pin) || !checkPin(body.pin, config.pin)) {
+        recordLoginFailure(ip);
+        return sendJson(res, 401, { error: "Wrong PIN." });
+      }
+      clearLoginFailures(ip);
+      res.setHeader("Set-Cookie", sessionCookie(createSession(), secure));
+      return sendJson(res, 200, { ok: true });
+    } catch (err) {
+      if (err instanceof BodyError) return sendJson(res, 400, { error: err.message });
+      throw err;
+    } finally { release(); }
   }
 
   const token = sessionOf(req);
@@ -344,8 +354,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, secure: boolean
         return sendJson(res, 401, { error: "Current PIN is wrong." });
       }
       if (!isValidNewPin(body.next)) return sendJson(res, 400, { error: NEW_PIN_RULE });
-      config.pin = hashPin(body.next);
-      await saveConfig(config);
+      if (settingsUpdating) throw new PhoneError("Wait for settings to finish saving.", 409);
+      settingsUpdating = true;
+      try {
+        const next = { ...config, pin: hashPin(body.next) };
+        await saveConfig(next);
+        config = next;
+      } finally { settingsUpdating = false; }
       endAllSessions();
       res.setHeader("Set-Cookie", sessionCookie(createSession(), secure));
       return sendJson(res, 200, { ok: true });
@@ -493,14 +508,15 @@ function imageOf(raw: unknown): { mimeType: string; data: string } | undefined {
 
 /** Photo messages use the compatible provider's image-capable model override when one is set. */
 async function llmSettings(withImage: boolean): Promise<LlmSettings> {
-  const gemini = config.provider === "gemini";
-  const openrouterModel = withImage && config.openrouterVisionModel.trim() ? config.openrouterVisionModel : config.openrouterModel;
+  const snapshot = config;
+  const gemini = snapshot.provider === "gemini";
+  const openrouterModel = withImage && snapshot.openrouterVisionModel.trim() ? snapshot.openrouterVisionModel : snapshot.openrouterModel;
   return {
-    provider: config.provider,
-    model: gemini ? config.geminiModel : openrouterModel,
-    apiKey: await decryptSecret(gemini ? config.geminiKeyEnc : config.openrouterKeyEnc),
-    thinking: config.thinking,
-    endpointUrl: config.endpointUrl,
+    provider: snapshot.provider,
+    model: gemini ? snapshot.geminiModel : openrouterModel,
+    apiKey: await decryptSecret(gemini ? snapshot.geminiKeyEnc : snapshot.openrouterKeyEnc),
+    thinking: snapshot.thinking,
+    endpointUrl: snapshot.endpointUrl,
   };
 }
 
@@ -522,48 +538,55 @@ function publicSettings() {
 
 const PROVIDERS: Provider[] = ["gemini", "openrouter"];
 const THINKING: ThinkingLevel[] = ["minimal", "low", "medium", "high"];
+let settingsUpdating = false;
 
 async function updateSettings(body: Record<string, unknown>): Promise<void> {
+  if (settingsUpdating) throw new PhoneError("Wait for settings to finish saving.", 409);
+  settingsUpdating = true;
+  try { await commitSettings(body); }
+  finally { settingsUpdating = false; }
+}
+
+async function commitSettings(body: Record<string, unknown>): Promise<void> {
+  const next = { ...config };
   const text = (value: unknown, max = 300) => (typeof value === "string" ? value.trim().slice(0, max) : undefined);
-  if (PROVIDERS.includes(body.provider as Provider)) config.provider = body.provider as Provider;
-  if (THINKING.includes(body.thinking as ThinkingLevel)) config.thinking = body.thinking as ThinkingLevel;
+  if (PROVIDERS.includes(body.provider as Provider)) next.provider = body.provider as Provider;
+  if (THINKING.includes(body.thinking as ThinkingLevel)) next.thinking = body.thinking as ThinkingLevel;
   const geminiModel = text(body.geminiModel, 100);
-  if (geminiModel) config.geminiModel = geminiModel;
+  if (geminiModel) next.geminiModel = geminiModel;
   const openrouterModel = text(body.openrouterModel, 200);
-  if (openrouterModel) config.openrouterModel = openrouterModel;
+  if (openrouterModel) next.openrouterModel = openrouterModel;
   const visionModel = text(body.openrouterVisionModel, 200);
-  if (visionModel !== undefined) config.openrouterVisionModel = visionModel;
+  if (visionModel !== undefined) next.openrouterVisionModel = visionModel;
   const endpointUrl = text(body.endpointUrl);
   if (endpointUrl) {
-    let parsed: URL;
     try {
-      parsed = new URL(endpointUrl);
-    } catch {
-      throw new BodyError("The endpoint URL is not a valid URL.");
+      next.endpointUrl = validateEndpoint(endpointUrl).href.replace(/\/+$/, "");
+    } catch (err) {
+      throw new BodyError((err as Error).message);
     }
-    if (parsed.protocol !== "https:" && !isLocalAddress(parsed.hostname) && parsed.hostname !== "localhost") {
-      throw new BodyError("Remote endpoints must use https://.");
-    }
-    config.endpointUrl = endpointUrl;
   }
   const geminiKey = text(body.geminiKey, 500);
-  if (geminiKey) config.geminiKeyEnc = await encryptSecret(geminiKey);
-  if (body.clearGeminiKey === true) config.geminiKeyEnc = null;
+  if (geminiKey) next.geminiKeyEnc = await encryptSecret(geminiKey);
+  if (body.clearGeminiKey === true) next.geminiKeyEnc = null;
   const openrouterKey = text(body.openrouterKey, 500);
-  if (openrouterKey) config.openrouterKeyEnc = await encryptSecret(openrouterKey);
-  if (body.clearOpenrouterKey === true) config.openrouterKeyEnc = null;
-  if (typeof body.photos === "boolean") config.photos = body.photos;
-  if (typeof body.explicitPhotos === "boolean") config.explicitPhotos = body.explicitPhotos;
+  if (openrouterKey) next.openrouterKeyEnc = await encryptSecret(openrouterKey);
+  if (body.clearOpenrouterKey === true) next.openrouterKeyEnc = null;
+  if (typeof body.photos === "boolean") next.photos = body.photos;
+  if (typeof body.explicitPhotos === "boolean") next.explicitPhotos = body.explicitPhotos;
   const picked = text(body.gameDir, 400);
   if (picked) {
     const gameDir = await GameFiles.resolveGameDir(picked);
     if (!gameDir) throw new BodyError("That isn't a Venus University folder. Pick the game folder, or its data or saves folder.");
     if (gameDir !== config.gameDir) {
-      config.gameDir = gameDir;
-      phone.setGameFiles(new GameFiles(gameDir));
+      next.gameDir = gameDir;
+      await phone.changeGameFiles(new GameFiles(gameDir), () => saveConfig(next));
+      config = next;
+      return;
     }
   }
-  await saveConfig(config);
+  await saveConfig(next);
+  config = next;
 }
 
 // ---- HTTPS setup ------------------------------------------------------------------------------------
@@ -628,9 +651,14 @@ function readJson(req: IncomingMessage, max = MAX_BODY): Promise<Record<string, 
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];
+    const timer = setTimeout(() => { reject(new BodyError("Request body timed out.")); req.destroy(); }, 30_000).unref();
+    const cleanup = () => clearTimeout(timer);
+    req.once("aborted", () => { cleanup(); reject(new BodyError("Request aborted.")); });
+    req.once("close", () => { cleanup(); reject(new BodyError("Request closed.")); });
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > max) {
+        cleanup();
         reject(new BodyError("That request is too large."));
         req.destroy();
         return;
@@ -638,6 +666,7 @@ function readJson(req: IncomingMessage, max = MAX_BODY): Promise<Record<string, 
       chunks.push(chunk);
     });
     req.on("end", () => {
+      cleanup();
       if (chunks.length === 0) return resolve({});
       try {
         const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
@@ -646,7 +675,7 @@ function readJson(req: IncomingMessage, max = MAX_BODY): Promise<Record<string, 
         reject(new BodyError("That request was not valid JSON."));
       }
     });
-    req.on("error", reject);
+    req.on("error", err => { cleanup(); reject(err); });
   });
 }
 

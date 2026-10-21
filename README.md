@@ -46,6 +46,7 @@ This provider choice supplies both text messages and dialogue for experimental c
 ## Using it
 
 - **Chats:** everyone who has given you her number in that save.
+- **Changing saves or folders:** wait for replies, calls, and photos to finish. Folder changes stop when there are unsynced changes; sync first, or use **Change save** to explicitly discard them. A failed selection keeps the previous session.
 - **📷:** send her a photo. She reacts to what is in it. Location and other metadata are stripped first. Your selected model must accept images. For an OpenAI-compatible provider, choose its image-capable model under **Photo message model** in Settings.
 - **"She texts first" (⏱ in each chat):** off, about every 5, 15 or 30 minutes, every 1–8 hours, or random (5 minutes to 4 hours). Set per girl, along with how many texts in a row (1–10) she can send before you reply. Never between 11pm and 8am.
 - **Her replies:** she sends a varied number of texts each time (usually one or two, sometimes more), and now and then reacts to your text with an emoji.
@@ -63,8 +64,8 @@ If you play the game between phone sessions, Sync detects changed saves (includi
 - **Optional HTTPS.** For an encrypted connection, set `"https": true` in `app-data/config.json` (or `VENUS_PHONE_HTTPS=1`) and restart. The app creates a certificate authority on your PC, whose private key never leaves it. Each phone then installs the certificate once from the setup page at `http://<pc-ip>:8790`, which has iPhone and Android steps and the fingerprint to check. After that, use `https://<pc-ip>:8791`.
 - **Local network only.** It only answers devices on your local network (192.168.x.x, 10.x.x.x, 172.16–31.x.x, localhost).
 - **DNS rebinding blocked.** Requests addressed to any hostname other than this PC's own names and addresses are refused. Cross-site requests are blocked using `Sec-Fetch-Site` and an exact Origin check.
-- **PIN-protected.** A PIN unlocks the app, with lockouts after repeated wrong tries. Session cookies are `HttpOnly`, `SameSite=Strict` and `Secure`.
-- **API keys never cross the network unencrypted.** Keys can only be entered on the PC itself, or from the phone once HTTPS is on. They are stored encrypted with Windows DPAPI for your user account.
+- **PIN-protected.** A PIN unlocks the app, with lockouts after repeated wrong tries and bounded pending login requests. Session cookies are `HttpOnly` and `SameSite=Strict`, with `Secure` set on HTTPS connections.
+- **API-key transport.** Keys can only be entered on the PC itself, or from the phone once HTTPS is on. AI endpoints must also use HTTPS; HTTP is allowed only for `localhost` or loopback addresses on this PC. This is checked again before sending requests, including for previously saved endpoints. AI requests do not follow redirects. Keys are stored encrypted with Windows DPAPI for your user account.
 - **Don't expose it.** Don't port-forward it, tunnel it or put it behind a proxy. It is built for a home network.
 - **The AI provider sees chats.** Chat text, and any photo you send, goes to your configured AI service: Gemini directly or the service at your chosen API base URL. Check that service's data-handling policies.
 - **Personal data stays in `app-data/`.** That folder next to the app holds your PIN hash, encrypted API keys, unsynced chats, your uploaded photos and, if HTTPS is on, the certificate files. It is git-ignored; never commit it.
