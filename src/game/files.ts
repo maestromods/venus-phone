@@ -13,15 +13,18 @@ import type { Character, PlaythroughRecord, SaveFile } from "./types.js";
 export const SAFE_NUMERIC_ID = /^[0-9]{1,20}$/;
 export const SAFE_CHAR_ID = /^[A-Za-z0-9-]{1,64}$/;
 const SAVE_SCHEMA_VERSIONS = new Set([12, 13]);
-const MANUAL_ID = /^manual(0[1-9]|[1-8][0-9]|90)$/;
+// VU 0.6.0 / VE 0.4.0 expanded manual slots from 90 to 9990.
+const MANUAL_ID = /^manual(0[1-9]|[1-9][0-9]{1,3})$/;
 const PHOTO_FILE = /^[a-z0-9]+_(?:bunnyboard|chat)_\d{3,6}\.(?:png|webp)$/;
+const LEGACY_PHOTO_FILE = /^photo_\d{1,20}_[a-f0-9]{8}\.png$/;
 
 export function isPhotoFile(file: string): boolean {
-  return PHOTO_FILE.test(file);
+  return PHOTO_FILE.test(file) || LEGACY_PHOTO_FILE.test(file);
 }
 
 export function isSaveId(saveId: string): boolean {
-  return saveId === "autosave" || SAFE_NUMERIC_ID.test(saveId) || MANUAL_ID.test(saveId);
+  const manual = MANUAL_ID.exec(saveId);
+  return saveId === "autosave" || SAFE_NUMERIC_ID.test(saveId) || (manual !== null && Number(manual[1]) <= 9990);
 }
 
 export class GameFiles {
@@ -90,7 +93,7 @@ export class GameFiles {
     const save = JSON.parse(raw) as SaveFile;
     if (!SAVE_SCHEMA_VERSIONS.has(save.schemaVersion)) {
       throw new Error(
-        `This save is schema version ${save.schemaVersion}; this app understands versions 12 and 13 (game 0.4.0 and 0.5.0).`,
+        `This save is schema version ${save.schemaVersion}; this app understands versions 12 and 13 (Venus University 0.4.0–0.6.0, including VE 0.4.0).`,
       );
     }
     if (!save.bunnyboard || typeof save.bunnyboard !== "object") throw new Error("This save has no phone data.");

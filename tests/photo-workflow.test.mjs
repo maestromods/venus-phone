@@ -24,6 +24,21 @@ const cg = {
   '9': node('PreviewImage', { images: ['31', 0] }),
 };
 const prompts = { positive: 'portrait at a cafe', negative: 'blurry' };
+test('VE photo workflows honor upscaler, hand-detector and controlnet selections', () => {
+  const original = { ...structuredClone(cg), '41': node('SaveImage'),
+    '80': node('UpscaleModelLoader', { model_name: 'old.pth' }),
+    '81': node('UltralyticsDetectorProvider', { model_name: 'bbox/old.pt' }),
+  };
+  const before = structuredClone(original);
+  const { workflow, outputNode } = preparePhotoWorkflow(original, 'photo', prompts, 42, {
+    comfyModels: { upscaler: 'new.pth', handDetector: 'bbox/new.pt', controlnet: 'new-control.safetensors' },
+  });
+  assert.equal(outputNode, '41');
+  assert.equal(workflow['80'].inputs.model_name, 'new.pth');
+  assert.equal(workflow['81'].inputs.model_name, 'bbox/new.pt');
+  assert.equal(workflow['12'].inputs.control_net_name, 'new-control.safetensors');
+  assert.deepEqual(original, before);
+});
 test('vanilla CG fallback has no pose/placeholder dependencies and leaves the source graph unchanged', () => {
   const before = structuredClone(cg);
   const { workflow, outputNode } = preparePhotoWorkflow(cg, 'cg', prompts, 123);

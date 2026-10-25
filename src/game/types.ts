@@ -1,4 +1,4 @@
-// Shapes of the game's own files (Venus University 0.4.0 / 0.5.0, save schemas 12 / 13).
+// Shapes of VU 0.4.0–0.6.0 / VE 0.4.0 files (save schemas 12 / 13).
 // Only the fields this app reads or writes are typed; everything else is carried through untouched.
 
 export type Sender = "player" | "contact" | "system";

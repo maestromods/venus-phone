@@ -96,7 +96,7 @@ test('later semesters load their roster, graduates, profiles and reader year wit
   const view = phone.view();
   assert.equal(view.charInfo.new.major, 'Physics');
   assert.equal(view.charInfo.old.pursuing, 'teaching abroad');
-  assert.equal(phone.promptContext(view, phone.characters.get('new'), 'none', false).player.termIndex, 1);
+  assert.equal((await phone.promptContext(view, phone.characters.get('new'), 'none', false)).player.termIndex, 1);
   assert.equal(phone.base.charInfo.new.major, undefined);
   const restored = new Phone(files);
   await restored.restore();

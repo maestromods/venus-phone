@@ -2,14 +2,15 @@
 // system prompt, then READER / CHARACTER / NOW / TEXTING SO FAR / RECENT MESSAGES / YOUR TURN,
 // with the PHOTOS block adapted from naudh1r's Photo Feature mod in Venus Extracurriculars,
 // plus BLOCKING and SUMMARY, answered as one JSON object. DM photos are a mod feature.
-// Story lore, schedules, weather and location lines are game-engine state this app does not
-// reproduce; the save's memories, summary and thread carry the history.
+// Player-authored lore and setting overrides come from the playthrough's lorebook sidecar.
+// Schedules, weather and location simulation remain owned by the game.
 
 import { formatChatDivider, formatDateBanner, formatSemesterProgress, type Season } from "../game/calendar.js";
 import { memoryLines, profileLines, readerText, relationshipLines } from "../game/relationship.js";
 import { emptyFlags, type Character, type CharInfo, type ChatMessage, type Conversation, type SaveFile } from "../game/types.js";
 import { PHOTO_SCHEMA_FIELDS, photoPromptLines, type ShotType } from "./photos.js";
 import type { PhotoTier } from "../game/types.js";
+import { lorebookLines, type LoreContext } from "../game/lorebook.js";
 
 const TEXTING_HISTORY_CAP = 20;
 const MEMORY_BUDGET = 30;
@@ -89,6 +90,8 @@ export interface TextingRequest {
 }
 
 export interface TextingContext {
+  lorebook?: LoreContext;
+  godlikeStandards?: boolean;
   save: SaveFile;
   character: Character;
   roster: Character[];
@@ -187,12 +190,13 @@ export function buildTextingPrompt(
     `${name} ${character.lastName}.`,
     ...(info?.pursuing ? [`${name} has graduated and is now ${info.pursuing}.`] : info?.major ? [`${name} is a year ${info.year ?? 1} ${info.major} major.`] : []),
     ...profileLines(character, info?.flags ?? emptyFlags()),
-    ...relationshipLines(character, info, save.date, save.stats, hasTexted(conversation)),
+    ...relationshipLines(character, info, save.date, save.stats, hasTexted(conversation), ctx.godlikeStandards),
     ...memoryLines(character, info, MEMORY_BUDGET, season),
     ...(info?.notes?.trim() ? [`Important notes on ${name}: ${info.notes.trim()}`] : []),
   ];
 
   const user = [
+    ...lorebookLines(ctx.lorebook, [newMessage, incomingDirection ?? "", summary ?? "", ...history].join("\n")),
     "READER",
     readerText({ ...ctx.player, stats: save.stats, bio: save.bio, lovers }),
     "",

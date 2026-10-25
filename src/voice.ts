@@ -142,7 +142,8 @@ export class VoiceCalls {
     try {
       if (!opening) await this.phone.recordVoice(call.charId, id, "player", text.trim().slice(0, 2000));
       if (!current()) throw new PhoneError("Call interrupted.", 409);
-      const context = this.phone.voiceContext(call.charId);
+      const context = await this.phone.voiceContext(call.charId);
+      if (!current()) throw new PhoneError("Call interrupted.", 409);
       const background = buildTextingPrompt(context, "", undefined, "Background only").user.split("\nYOUR TURN\n")[0];
       const request = {
         system: "You perform one character in a fictional phone conversation. Speak in her own voice, with her personality, relationship and memories. Return only JSON matching the schema.",

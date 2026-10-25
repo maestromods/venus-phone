@@ -6,7 +6,7 @@ Unofficial fan project. Not made by or affiliated with Venus Dev. No game files,
 
 ## Requirements
 
-- Windows PC with Venus University 0.4.0 or 0.5.0 (save schemas 12 and 13)
+- Windows PC with Venus University 0.4.0–0.6.0, including Venus Extracurriculars (VE) 0.4.0 on VU 0.6.0 (save schemas 12 and 13)
 - [Node.js](https://nodejs.org/) 20 or newer
 - A Gemini API key, or a key for an OpenAI-compatible chat provider such as OpenRouter or NanoGPT; the selected model must support structured JSON replies
 - For photos from the girls: the game's managed local ComfyUI, set up from inside the game (external ComfyUI servers are not supported)
@@ -54,7 +54,11 @@ This provider choice supplies both text messages and dialogue for experimental c
 - **Themes (Settings → Appearance):** Bunnyboard, Midnight, OLED (true black), Light, or match your device, plus an accent colour. On desktop you can also set a background around the chat (gradients or your own picture). Saved per device.
 - **Sync:** close the game, tap Sync, then load the newest slot save in the game. Sync always writes a *new* save; your existing saves are never changed. If the game saved since you started, your chats go on top of its newest save in the same semester. If the newest save belongs to a different semester (including another continuation branch), sync stops and keeps your unsynced chats rather than moving them onto the wrong calendar. Sync before continuing to a new semester.
 - **0.5.0 semesters:** contacts include that save's roster and graduates, dates follow its spring/fall calendar, and character profiles come from the matching semester. Sync preserves the source save's schema and additional game fields.
+- **VE 0.4.0 / VU 0.6.0:** recognizes manual saves through slot 9,990, including when checking for newer progress before sync. Sync retains additional game/mod data, such as talent progress, challenge floors, story memory, preset variables, notifications and saved mini-games. Phone does not run game mod hooks or award talent points for texting.
+- **Lorebook:** uses the selected playthrough's setting override and matching edited/custom entries from `lorebook.json`. Shipped entries edited only in their keys or text inherit the other field; City Life overrides follow that playthrough's City Life switch. The sidecar is read fresh for each reply and is never rewritten by sync. Phone still uses its own texting/call prompts; Prompt Studio layouts and unedited world lore are not imported.
+- **VE character context:** honors the enabled Godlike Standards mod's romance requirements and Starting Challenge's negative stat descriptions. Saved PNG/WebP photos and legacy VE photo names display in chat.
 - **0.5.0 photo generation:** uses the installed Photo Feature workflow when available, otherwise adapts the base game's CG workflow in memory. The fallback removes the staged pose requirement and placeholder character LoRA, honors a real character LoRA when present, and uses the game's managed checkpoint, style LoRA and face-detector selections. Game workflows/settings are never rewritten.
+- **Image model settings:** also applies the game's selected upscaler, hand detector and ControlNet when those nodes exist in the installed workflow. VE's in-game duo-photo feature remains separate from Phone's single-character photos.
 
 If you play the game between phone sessions, Sync detects changed saves (including overwritten autosave/manual slots) and asks before applying pending phone changes to newer progress. The warning identifies the target save and covers message deletions and block/unblock decisions. Confirmation is tied to that save's contents and the pending edits; changes after the warning require another review. Affected chat recaps are cleared so an older phone recap cannot replace newer game context. With no pending changes, Sync writes nothing; pick the newest save to refresh the app's conversation and relationship context. After syncing, load the newly created slot in the game before playing on.
 

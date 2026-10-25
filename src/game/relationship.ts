@@ -81,6 +81,12 @@ const STAT_PHRASES: Record<StatKey, string[]> = {
   body: ["weak and clumsy", "a little plain", "decently fit", "pretty strong and fast", "exceptionally strong and fast", "a god-like superathlete"],
   heart: ["socially awkward", "somewhat forgettable", "easy to get along with", "pretty charming", "exceptionally charming", "a god-like seducer"],
 };
+// VE Starting Challenge adds four displayed tiers below the normal stat floor.
+const CHALLENGE_PHRASES: Record<StatKey, string[]> = {
+  brain: ["struggling with even basic reasoning", "finding even simple decisions difficult", "struggling badly to think things through", "struggling to think things through"],
+  body: ["struggling with even light physical effort", "very weak and tiring after small efforts", "extremely weak and easily exhausted", "very weak and out of shape"],
+  heart: ["finding even simple conversations overwhelming", "severely lacking social confidence", "struggling badly with social situations", "struggling to connect with others"],
+};
 
 function tierOf(points: number): number {
   for (let i = TIER_THRESHOLDS.length - 1; i >= 0; i--) {
@@ -151,11 +157,15 @@ export function relationshipLines(
   today: number,
   stats: Stats,
   texted: boolean,
+  godlikeStandards = false,
 ): string[] {
   const name = character.firstName;
   const flags = info?.flags ?? emptyFlags();
   const affection = affectionFor(info, today);
   const lines: string[] = [];
+  if (godlikeStandards && hasTrait(character, "Godlike") && !flags.isLover && STAT_KEYS.some(key => stats[key] < 100)) {
+    lines.push(`${name} requires Godly Brain, Body and Heart (100 points each) before starting a romance. The reader has not met those requirements. She will not initiate or accept romantic or sexual advances; friendship can grow normally. Gifts, persuasion and abilities do not override these requirements.`);
+  }
   const behavior = character.behavior[behaviorLevelOf(flags, affection)];
   if (behavior) lines.push(behavior);
   const disposition = dispositionOf(affection);
@@ -213,7 +223,11 @@ function dedupe(memories: Memory[]): Memory[] {
 
 export function describePlayer(stats: Stats): string {
   const ordered = [...STAT_KEYS].sort((a, b) => stats[a] - stats[b]);
-  const phrases = ordered.map((key) => STAT_PHRASES[key][tierOf(stats[key])] ?? "");
+  const phrases = ordered.map((key) => {
+    const points = stats[key];
+    if (points < -15) return CHALLENGE_PHRASES[key][points < -80 ? 0 : points < -60 ? 1 : points < -30 ? 2 : 3];
+    return STAT_PHRASES[key][tierOf(points)] ?? "";
+  });
   return `The reader is ${phrases[0]}, he is ${phrases[1]}, and he is ${phrases[2]}.`;
 }
 
