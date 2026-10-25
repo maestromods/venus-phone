@@ -12,6 +12,7 @@ import { APP_DATA_DIR, writeJsonAtomic } from "./config.js";
 import { formatDateBanner, seasonOfTerm, type Season } from "./game/calendar.js";
 import { GameFiles, isGameRunning, isPhotoFile, SAFE_CHAR_ID, SAFE_NUMERIC_ID } from "./game/files.js";
 import { semesterOf } from "./game/semesters.js";
+import { godlikeStandardsOn, readLorebook } from "./game/lorebook.js";
 import { emptyFlags, type Character, type ChatMessage, type ChatPhoto, type Conversation, type PlaythroughRecord, type SaveFile } from "./game/types.js";
 import { completeStructured, type LlmSettings } from "./llm.js";
 import { stripImageMetadata } from "./metadata.js";
@@ -476,13 +477,13 @@ export class Phone {
     const text = !incoming && sent ? sent.text + (this.readerPhotoOf(sent) ? ` ${readerPhotoNote(this.readerPhotoOf(sent)!.scene)}` : "") : "";
     const photoShot = shotFromAsk(text) ?? (originalPhoto ? shotFromAsk(originalPhoto.scene) : null) ?? pickShot();
     const bubbles = pickBubbleCount(text);
-    const request = buildTextingPrompt(
-      { ...this.promptContext(save, character, allowedPhoto, Boolean(originalPhoto)), bubbles, photoShot, replacementPhoto: originalPhoto },
-      text, undefined, incoming ? INCOMING_DIRECTION : undefined,
-    );
-    request.user += "\nREGENERATION\nWrite a fresh alternative with different wording and a different conversational beat. This replaces the previous reply. Do not mention regeneration.";
     this.inFlight.add(charId);
     try {
+      const request = buildTextingPrompt(
+        { ...await this.promptContext(save, character, allowedPhoto, Boolean(originalPhoto)), bubbles, photoShot, replacementPhoto: originalPhoto },
+        text, undefined, incoming ? INCOMING_DIRECTION : undefined,
+      );
+      request.user += "\nREGENERATION\nWrite a fresh alternative with different wording and a different conversational beat. This replaces the previous reply. Do not mention regeneration.";
       const initial = cleanReply(parseTextingReply(await completeStructured(llm, request)), allowedPhoto);
       initial.messages = fitBubbles(initial.messages, bubbles);
       initial.photoPrompt = captionForShot(initial.photoPrompt, photoShot);
@@ -519,12 +520,12 @@ export class Phone {
     if (!flags.gaveContactInfo) throw new PhoneError(`${character.firstName} hasn't given you her number.`, 403);
     if (this.inFlight.has(charId)) throw new PhoneError(`${character.firstName} is still replying.`, 409);
     if (!flags.blocked) throw new PhoneError(`${character.firstName} hasn't blocked you.`, 409);
-    const request = buildTextingPrompt(
-      { ...this.promptContext(save, character, "none", false), bubbles: 1, unblocking: true },
-      "", undefined, UNBLOCK_DIRECTION,
-    );
     this.inFlight.add(charId);
     try {
+      const request = buildTextingPrompt(
+        { ...await this.promptContext(save, character, "none", false), bubbles: 1, unblocking: true },
+        "", undefined, UNBLOCK_DIRECTION,
+      );
       const reply = cleanReply(parseTextingReply(await completeStructured(llm, request)), "none");
       if (!reply.messages.length || reply.blocked) throw new PhoneError("No unblock message was returned. Try the profile gesture again.", 502);
       if (this.state !== state) throw new PhoneError("The selected save changed. Try again.", 409);
@@ -575,7 +576,7 @@ export class Phone {
       const photoShot = shotFromAsk(trimmed) ?? pickShot();
       const bubbles = pickBubbleCount(trimmed);
       const request = buildTextingPrompt(
-        { ...this.promptContext(save, character, allowedPhoto, requested), offerReaction, photoShot, bubbles },
+        { ...await this.promptContext(save, character, allowedPhoto, requested), offerReaction, photoShot, bubbles },
         trimmed,
         image,
       );
@@ -640,7 +641,7 @@ export class Phone {
       // Texting first is usually one or two texts.
       const bubbles = Math.min(2, pickBubbleCount());
       const request = buildTextingPrompt(
-        { ...this.promptContext(save, character, allowedPhoto, false), photoShot, bubbles },
+        { ...await this.promptContext(save, character, allowedPhoto, false), photoShot, bubbles },
         "",
         undefined,
         INCOMING_DIRECTION,
@@ -748,9 +749,15 @@ export class Phone {
     }
   }
 
-  private promptContext(save: SaveFile, character: Character, allowedPhoto: ReturnType<typeof allowedPhotoTier>, requested: boolean) {
-    const { record } = this.require();
+  private async promptContext(save: SaveFile, character: Character, allowedPhoto: ReturnType<typeof allowedPhotoTier>, requested: boolean) {
+    const { record, state } = this.require();
+    const [lorebook, godlikeStandards] = await Promise.all([
+      readLorebook(this.files, state.playthroughId, Array.isArray(record.mods) && record.mods.includes("city-life")),
+      godlikeStandardsOn(this.files),
+    ]);
     return {
+      lorebook,
+      godlikeStandards,
       save,
       character,
       roster: [...this.characters.values()].filter((c) => c.charId !== character.charId),

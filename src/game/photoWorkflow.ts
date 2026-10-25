@@ -45,11 +45,14 @@ export function preparePhotoWorkflow(original: Workflow, kind: "photo" | "cg", p
   for (const [id, entry] of Object.entries(workflow)) {
     const role = entry.class_type === "CheckpointLoaderSimple" ? "checkpoint"
       : entry.class_type === "LoraLoader" && id !== "100" ? "lora"
-      : entry.class_type === "UltralyticsDetectorProvider" && String(entry.inputs.model_name).startsWith("segm/") ? "faceSegDetector" : null;
+      : entry.class_type === "ControlNetLoader" ? "controlnet"
+      : entry.class_type === "UpscaleModelLoader" ? "upscaler"
+      : entry.class_type === "UltralyticsDetectorProvider" && String(entry.inputs.model_name).startsWith("segm/") ? "faceSegDetector"
+      : entry.class_type === "UltralyticsDetectorProvider" && String(entry.inputs.model_name).startsWith("bbox/") ? "handDetector" : null;
     if (!role) continue;
     const pick = picks[role];
     if (role === "lora" && pick === "") { bypassLora(workflow, id); continue; }
-    if (typeof pick === "string" && pick.trim()) entry.inputs[role === "checkpoint" ? "ckpt_name" : role === "lora" ? "lora_name" : "model_name"] = pick;
+    if (typeof pick === "string" && pick.trim()) entry.inputs[role === "checkpoint" ? "ckpt_name" : role === "lora" ? "lora_name" : role === "controlnet" ? "control_net_name" : "model_name"] = pick;
     if (role === "lora") entry.inputs.strength_model = entry.inputs.strength_clip = weightOf(settings.comfyLoraWeight);
   }
   const outputNode = kind === "photo" ? "41" : "9";
