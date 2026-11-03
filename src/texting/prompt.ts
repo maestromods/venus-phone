@@ -192,6 +192,9 @@ export function buildTextingPrompt(
     ...profileLines(character, info?.flags ?? emptyFlags()),
     ...relationshipLines(character, info, save.date, save.stats, hasTexted(conversation), ctx.godlikeStandards),
     ...memoryLines(character, info, MEMORY_BUDGET, season),
+    // Only secrets already told to the reader belong in a DM. Unrevealed secrets
+    // stay in the save for the game's scene system to disclose.
+    ...(info?.toldSecrets?.length ? [`Secrets the reader knows: ${info.toldSecrets.slice(-3).join(" ")}`] : []),
     ...(info?.notes?.trim() ? [`Important notes on ${name}: ${info.notes.trim()}`] : []),
   ];
 

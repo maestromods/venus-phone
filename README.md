@@ -6,7 +6,7 @@ Unofficial fan project. Not made by or affiliated with Venus Dev. No game files,
 
 ## Requirements
 
-- Windows PC with Venus University 0.4.0–0.6.0, including Venus Extracurriculars (VE) 0.4.0 on VU 0.6.0 (save schemas 12 and 13)
+- Windows PC with Venus University 0.4.0–0.7.0, including Venus Extracurriculars (VE) 0.7.0 on VU 0.7.0 (save schemas 12 and 13)
 - [Node.js](https://nodejs.org/) 20 or newer
 - A Gemini API key, or a key for an OpenAI-compatible chat provider such as OpenRouter or NanoGPT; the selected model must support structured JSON replies
 - For photos from the girls: the game's managed local ComfyUI, set up from inside the game (external ComfyUI servers are not supported)
@@ -55,6 +55,7 @@ This provider choice supplies both text messages and dialogue for experimental c
 - **Sync:** close the game, tap Sync, then load the newest slot save in the game. Sync always writes a *new* save; your existing saves are never changed. If the game saved since you started, your chats go on top of its newest save in the same semester. If the newest save belongs to a different semester (including another continuation branch), sync stops and keeps your unsynced chats rather than moving them onto the wrong calendar. Sync before continuing to a new semester.
 - **0.5.0 semesters:** contacts include that save's roster and graduates, dates follow its spring/fall calendar, and character profiles come from the matching semester. Sync preserves the source save's schema and additional game fields.
 - **VE 0.4.0 / VU 0.6.0:** recognizes manual saves through slot 9,990, including when checking for newer progress before sync. Sync retains additional game/mod data, such as talent progress, challenge floors, story memory, preset variables, notifications and saved mini-games. Phone does not run game mod hooks or award talent points for texting.
+- **VE 0.7.0 / VU 0.7.0:** continues to use schema 13. Sync preserves mod-owned `ex` slices (including Prompt Studio's migrated variables), scene mod data and rollback marks without migrating or running them. Relationship and photo eligibility include remaining semester-break penalties and fresh likes among her latest three feed posts (five for Terminally Online). DM context includes her latest three disclosed secrets; undisclosed secrets stay private. Phone does not advance scenes or enrollment/application flows. Older supported saves remain supported.
 - **Lorebook:** uses the selected playthrough's setting override and matching edited/custom entries from `lorebook.json`. Shipped entries edited only in their keys or text inherit the other field; City Life overrides follow that playthrough's City Life switch. The sidecar is read fresh for each reply and is never rewritten by sync. Phone still uses its own texting/call prompts; Prompt Studio layouts and unedited world lore are not imported.
 - **VE character context:** honors the enabled Godlike Standards mod's romance requirements and Starting Challenge's negative stat descriptions. Saved PNG/WebP photos and legacy VE photo names display in chat.
 - **0.5.0 photo generation:** uses the installed Photo Feature workflow when available, otherwise adapts the base game's CG workflow in memory. The fallback removes the staged pose requirement and placeholder character LoRA, honors a real character LoRA when present, and uses the game's managed checkpoint, style LoRA and face-detector selections. Game workflows/settings are never rewritten.
@@ -98,6 +99,8 @@ node dist/server.js
 Settings can also come from environment variables: `VENUS_GAME_DIR`, `VENUS_PHONE_PORT` (HTTP, default 8790), `VENUS_PHONE_HTTPS_PORT` (default HTTP port + 1), `VENUS_PHONE_PIN`, `VENUS_PHONE_DATA`, and `VENUS_PHONE_HTTPS=1` to turn on HTTPS.
 
 Pull requests targeting `main` and pushes to `main` run **Build and test (Windows)** in GitHub Actions. The workflow installs locked dependencies and runs `npm test` on Windows with Node.js 22. Tests use synthetic saves and mocked AI/speech providers; no game install, API keys, voice models, or personal data are needed.
+
+The 0.7.0 compatibility contracts were checked against [VE v0.7.0](https://github.com/venus-extracurriculars/build/releases/tag/v0.7.0), source commit `716d6bcb8ee2036e162eed76bd597ab53060cd90`. `tests/ve-070.test.mjs` covers mod-data preservation when syncing onto newer progress, continued-semester affection/photo eligibility, and disclosed-secret context. This is source-level and synthetic-save validation; live game loading and ComfyUI rendering still require a local game install.
 
 ## Credits
 
