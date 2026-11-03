@@ -93,7 +93,7 @@ export class GameFiles {
     const save = JSON.parse(raw) as SaveFile;
     if (!SAVE_SCHEMA_VERSIONS.has(save.schemaVersion)) {
       throw new Error(
-        `This save is schema version ${save.schemaVersion}; this app understands versions 12 and 13 (Venus University 0.4.0–0.6.0, including VE 0.4.0).`,
+        `This save is schema version ${save.schemaVersion}; this app understands versions 12 and 13 (Venus University 0.4.0–0.7.0, including VE 0.7.0).`,
       );
     }
     if (!save.bunnyboard || typeof save.bunnyboard !== "object") throw new Error("This save has no phone data.");

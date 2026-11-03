@@ -33,7 +33,7 @@ export function allowedPhotoTier(character: Character, info: CharInfo | undefine
   if (!switches.enabled) return "none";
   const flags = info?.flags ?? emptyFlags();
   if (!flags.gaveContactInfo || flags.blocked) return "none";
-  const feeling = dispositionOf(affectionFor(info, today));
+  const feeling = dispositionOf(affectionFor(info, today, character));
   if (feeling === "hostile" || feeling === "annoyed") return "none";
   const noNsfw = !switches.explicit;
   if (hasTrait(character, "Promiscuous")) return noNsfw ? "suggestive" : "explicit";

@@ -1,4 +1,4 @@
-// Shapes of VU 0.4.0–0.6.0 / VE 0.4.0 files (save schemas 12 / 13).
+// Shapes of VU 0.4.0–0.7.0 / VE 0.7.0 files (save schemas 12 / 13).
 // Only the fields this app reads or writes are typed; everything else is carried through untouched.
 
 export type Sender = "player" | "contact" | "system";
@@ -68,6 +68,9 @@ export interface CharInfo {
   jealousyMemories?: Memory[];
   giftMemories?: Memory[];
   notes?: string;
+  toldSecrets?: string[];
+  breakPenalty?: { points: number; halved?: true };
+  feed?: Array<{ date: number; liked?: boolean; likedOn?: number; [extra: string]: unknown }>;
   [extra: string]: unknown;
 }
 
@@ -80,6 +83,8 @@ export interface SaveFile {
   time: number;
   stats: Stats;
   bio?: string;
+  /** Mod-owned slices introduced by the public mod framework; never migrate these in Phone. */
+  ex?: Record<string, { v: string; data: unknown }>;
   charInfo: Record<string, CharInfo>;
   bunnyboard: {
     conversations: Record<string, Conversation>;

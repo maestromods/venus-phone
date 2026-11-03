@@ -1,6 +1,6 @@
 // Affection, disposition and the relationship lines a texting prompt carries.
 // Ported from the game's renderer (affectionFor, dispositionOf, relationshipLines, readerText);
-// a few rarely-hit branches (mood cycles, Echo multipliers, liked-post bonus) are left out.
+// Mood cycles and Echo multipliers remain owned by the game.
 
 import { formatShortGameDate, readerYearPhrase, type Season } from "./calendar.js";
 import { emptyFlags, hasTrait, type Character, type CharInfo, type Flags, type Memory, type Stats, type StatKey } from "./types.js";
@@ -27,14 +27,20 @@ export function mergedMemories(info: CharInfo | undefined, window?: number): Mem
   return merged;
 }
 
-export function affectionFor(info: CharInfo | undefined, today: number): number {
+export function affectionFor(info: CharInfo | undefined, today: number, character?: Pick<Character, "traits">): number {
   let total = 0;
   for (const entry of mergedMemories(info, 20)) {
     const points = POINTS[entry.type];
     if (points === undefined) continue;
     total += points * weightFor(Math.max(0, today - entry.date));
   }
-  return total;
+  // VU/VE 0.7.0 counts fresh likes among her newest posts, and retains the
+  // continued-semester penalty until the game spends it through shared scenes.
+  for (const post of (info?.feed ?? []).slice(hasTrait(character, "Terminally Online") ? -5 : -3)) {
+    if (post.liked && post.likedOn !== undefined && post.likedOn - post.date <= 1) total += 1;
+  }
+  const penalty = info?.breakPenalty;
+  return total - (penalty ? (penalty.halved ? Math.ceil(penalty.points / 2) : penalty.points) : 0);
 }
 
 export type Disposition = "devoted" | "trusted" | "friendly" | "neutral" | "annoyed" | "hostile";
@@ -161,7 +167,7 @@ export function relationshipLines(
 ): string[] {
   const name = character.firstName;
   const flags = info?.flags ?? emptyFlags();
-  const affection = affectionFor(info, today);
+  const affection = affectionFor(info, today, character);
   const lines: string[] = [];
   if (godlikeStandards && hasTrait(character, "Godlike") && !flags.isLover && STAT_KEYS.some(key => stats[key] < 100)) {
     lines.push(`${name} requires Godly Brain, Body and Heart (100 points each) before starting a romance. The reader has not met those requirements. She will not initiate or accept romantic or sexual advances; friendship can grow normally. Gifts, persuasion and abilities do not override these requirements.`);
