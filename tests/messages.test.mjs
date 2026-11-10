@@ -7,6 +7,7 @@ import path from 'node:path';
 const dir = await mkdtemp(path.join(os.tmpdir(), 'venus-messages-'));
 process.env.VENUS_PHONE_DATA = dir;
 const { Phone, applyDelta } = await import('../dist/phone.js');
+const { GameFiles } = await import('../dist/game/files.js');
 const { emptyFlags } = await import('../dist/game/types.js');
 const base = {
   date: 1, time: 0, stats: { brain: 1, body: 1, heart: 1 },
@@ -18,7 +19,7 @@ const base = {
   ] } } },
 };
 function phone() {
-  const p = new Phone({});
+  const p = new Phone(new GameFiles(dir));
   p.base = structuredClone(base);
   p.state = { playthroughId: '1', baseSaveId: '1', delta: { added: {}, summaries: {}, blocked: [], unread: {} } };
   p.record = { chars: ['girl'], playerFirstName: 'Reader', playerLastName: '', term: { index: 0 } };
@@ -34,7 +35,6 @@ function photoPhone() {
   p.base.bunnyboard.conversations.girl.messages[1].photo = {
     tier: 'everyday', scene: 'Sitting by a cafe window in her everyday clothes.', file: 'girl_chat_001.png', pending: true,
   };
-  p.files.photosDir = () => path.join(dir, 'photos');
   p.renders = [];
   // Capture queued jobs without starting ComfyUI. The pending photo need not exist on disk yet.
   p.drawPhoto = async (playthrough, character, message) => { p.renders.push({ playthrough, character, message }); };

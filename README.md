@@ -6,7 +6,7 @@ Unofficial fan project. Not made by or affiliated with Venus Dev. No game files,
 
 ## Requirements
 
-- Windows PC with Venus University 0.4.0–0.7.0, including Venus Extracurriculars (VE) 0.7.0 on VU 0.7.0 (save schemas 12 and 13)
+- Windows PC with Venus University 0.4.0–0.8.0, including Venus Extracurriculars (VE) 0.8.0 on VU 0.8.0 (save schemas 12 and 13)
 - [Node.js](https://nodejs.org/) 20 or newer
 - A Gemini API key, or a key for an OpenAI-compatible chat provider such as OpenRouter or NanoGPT; the selected model must support structured JSON replies
 - For photos from the girls: the game's managed local ComfyUI, set up from inside the game (external ComfyUI servers are not supported)
@@ -100,7 +100,7 @@ Settings can also come from environment variables: `VENUS_GAME_DIR`, `VENUS_PHON
 
 Pull requests targeting `main` and pushes to `main` run **Build and test (Windows)** in GitHub Actions. The workflow installs locked dependencies and runs `npm test` on Windows with Node.js 22. Tests use synthetic saves and mocked AI/speech providers; no game install, API keys, voice models, or personal data are needed.
 
-The 0.7.0 compatibility contracts were checked against [VE v0.7.0](https://github.com/venus-extracurriculars/build/releases/tag/v0.7.0), source commit `716d6bcb8ee2036e162eed76bd597ab53060cd90`. `tests/ve-070.test.mjs` covers mod-data preservation when syncing onto newer progress, continued-semester affection/photo eligibility, and disclosed-secret context. This is source-level and synthetic-save validation; live game loading and ComfyUI rendering still require a local game install.
+VE 0.8.0 continues to use save schema 13. Phone reads migrated and legacy DM attachments, serves PNG or WebP photos from either storage layout, and writes new attachments in Photo Feature's format on VE 0.8.x. With Bunnyfeeds enabled, DMs can refer to the character's two latest public posts and conversations she has publicly answered there. See the [VE 0.8.0 release](https://github.com/venus-extracurriculars/build/releases/tag/v0.8.0).
 
 ## Credits
 

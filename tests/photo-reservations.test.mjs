@@ -19,6 +19,30 @@ async function until(predicate) {
   while (!predicate()) { assert.ok(Date.now() < end, 'Background render settled'); await new Promise(resolve => setTimeout(resolve, 2)); }
 }
 
+test('VE 0.8 places a rendered DM image in the mod folder and keeps its reservation across restart', async () => {
+  const { phone, files } = await fixture('first', Phone);
+  await mkdir(path.join(files.gameDir, 'resources'));
+  await writeFile(path.join(files.gameDir, 'resources', 'venus-extracurriculars.json'),
+    JSON.stringify({ build: 'Venus Extracurriculars', buildVersion: '0.8.0' }));
+  globalThis.qaRenderPhoto = async (_files, _prompts, dest) => {
+    await mkdir(path.dirname(dest), { recursive: true });
+    await writeFile(dest, 'synthetic render');
+  };
+  try {
+    respond('Here you go', { sendPhoto: true, photoTier: 'everyday', photoPrompt: 'Sitting by a cafe window' });
+    await phone.send('girl', 'Send a photo', settings, { enabled: true, explicit: false });
+    await until(() => phone.rendering.size === 0);
+    const sent = phone.thread('girl').messages.at(-1);
+    const [modern, legacy] = files.photoDirs('1', 'girl');
+    assert.equal(await phone.photoPath('girl', sent.photo.file), path.join(modern, sent.photo.file));
+    assert.deepEqual(JSON.parse(await readFile(path.join(legacy, sent.photo.file + '.phone.json'))), { messageId: sent.id, completed: true });
+    await phone.persist();
+    const restarted = new Phone(files);
+    await restarted.restore();
+    assert.equal(await restarted.photoPath('girl', sent.photo.file), path.join(modern, sent.photo.file));
+  } finally { delete globalThis.qaRenderPhoto; }
+});
+
 test('deleted pending photos keep durable filenames; restart recovers only the owning job', async () => {
   const jobs = [];
   let tail = Promise.resolve();

@@ -1,4 +1,4 @@
-// Shapes of VU 0.4.0–0.7.0 / VE 0.7.0 files (save schemas 12 / 13).
+// Shapes of VU 0.4.0–0.8.0 / VE 0.8.0 files (save schemas 12 / 13).
 // Only the fields this app reads or writes are typed; everything else is carried through untouched.
 
 export type Sender = "player" | "contact" | "system";
@@ -23,6 +23,7 @@ export interface ChatMessage {
   time: number;
   error?: boolean;
   photo?: ChatPhoto;
+  ex?: Record<string, { v: string; data: unknown }>;
   [extra: string]: unknown;
 }
 

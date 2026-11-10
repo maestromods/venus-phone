@@ -1,6 +1,6 @@
 // Reading and writing the game's data folder. Follows the game's own layout:
 //   <game>/data/saves/<playthroughId>/{autosave,<numeric>,manualNN}.json, playthrough.json
-//   <game>/data/saves/<playthroughId>/photos/<charId>/<slug>_chat_NNN.png
+//   <game>/data/saves/<playthroughId>/{mod-data/photo-feature,photos}/<charId>/<slug>_chat_NNN.png
 //   <game>/data/characters/<charId>/character.json  (or resources/assets/characters for shipped girls)
 
 import { execFile } from "node:child_process";
@@ -58,6 +58,39 @@ export class GameFiles {
     return path.join(this.playthroughDir(playthroughId), "photos", charId);
   }
 
+  photoDirs(playthroughId: string, charId: string): [string, string] {
+    const legacy = this.photosDir(playthroughId, charId);
+    return [path.join(this.playthroughDir(playthroughId), "mod-data", "photo-feature", charId), legacy];
+  }
+
+  /** Only opt in to the record format shipped by the identified VE release. */
+  async photoRecordVersion(): Promise<string | undefined> {
+    const marker = path.join(this.gameDir, "resources", "venus-extracurriculars.json");
+    try {
+      const ve = JSON.parse(await fs.readFile(marker, "utf8"));
+      if (ve?.build === "Venus Extracurriculars" && /^0\.8\.\d+$/.test(ve.buildVersion)) return "1.7.2";
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    return undefined;
+  }
+
+  async findPhoto(playthroughId: string, charId: string, file: string): Promise<string | null> {
+    if (!isPhotoFile(file)) return null;
+    const stem = file.replace(/\.(png|webp)$/, "");
+    for (const dir of this.photoDirs(playthroughId, charId)) {
+      for (const ext of [".webp", ".png"]) {
+        const full = path.join(dir, stem + ext);
+        try {
+          if ((await fs.lstat(full)).isFile()) return full;
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        }
+      }
+    }
+    return null;
+  }
+
   async exists(): Promise<boolean> {
     if (!this.gameDir) return false;
     try {
@@ -93,7 +126,7 @@ export class GameFiles {
     const save = JSON.parse(raw) as SaveFile;
     if (!SAVE_SCHEMA_VERSIONS.has(save.schemaVersion)) {
       throw new Error(
-        `This save is schema version ${save.schemaVersion}; this app understands versions 12 and 13 (Venus University 0.4.0–0.7.0, including VE 0.7.0).`,
+        `This save is schema version ${save.schemaVersion}; this app understands versions 12 and 13 (Venus University 0.4.0–0.8.0, including VE 0.8.0).`,
       );
     }
     if (!save.bunnyboard || typeof save.bunnyboard !== "object") throw new Error("This save has no phone data.");

@@ -54,14 +54,14 @@ export function lorebookLines(context: LoreContext | undefined, scan: string): s
   ];
 }
 
-/** Godlike Standards is an anytime mod, off by default; do not infer it from the trait alone. */
-export async function godlikeStandardsOn(files: GameFiles): Promise<boolean> {
+/** These anytime mods are off until enabled in the game's settings. */
+export async function readModSwitches(files: GameFiles): Promise<Record<string, unknown>> {
   try {
     const raw: unknown = JSON.parse(await fs.readFile(path.join(files.dataDir, "mods.json"), "utf8"));
-    if (!object(raw) || !object(raw.on)) throw new Error("Invalid mod switches.");
-    return raw.on["godlike-standards"] === true;
+    if (!object(raw) || (raw.on !== undefined && !object(raw.on))) throw new Error("Invalid mod switches.");
+    return raw.on ?? {};
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw new Error("The game's mod settings could not be read. Check them in VE before texting.");
   }
 }
