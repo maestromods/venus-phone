@@ -50,7 +50,7 @@ const FRAMING_SEEN: Array<{ cues: string[]; seen: Region[] }> = [
 ];
 const SPREAD_CUES = ["spread legs", "legs apart", "legs open", "thighs spread", "legs spread", "spreading her pussy", "spread pussy"];
 const REAR_CUES = ["spreading her ass", "spreading her cheeks", "holding her cheeks apart"];
-const FRAMED_SEEN: Record<string, Region[]> = { face: [], waist: ["bust", "nipples"] };
+const FRAMED_SEEN: Record<string, Region[]> = { face: [], waist: ["bust", "nipples"], lower: ["pubic", "hipsThighs", "buttocks"] };
 
 function seenIn(caption: string, framing: string | null): Set<Region> {
   const text = caption.toLowerCase();
@@ -59,7 +59,7 @@ function seenIn(caption: string, framing: string | null): Set<Region> {
   const seen = new Set<Region>(close ?? row?.seen ?? SEEN_BY_DEFAULT);
   if (saysAny(text, SPREAD_CUES)) seen.add("pubic");
   if (saysAny(text, REAR_CUES)) seen.add("buttocks");
-  if (framing !== "face") seen.add("stomach");
+  if (framing !== "face" && framing !== "lower") seen.add("stomach");
   return seen;
 }
 
@@ -132,18 +132,28 @@ const describesNothingOn = (caption: string) =>
 
 // ---- Framing and pose ---------------------------------------------------------------------------
 
+const CLOSE_UP = ["close-up", "closeup", "close up"];
+const MEDIUM_CLOSE_UP = ["medium close-up", "medium close up"];
+const LOWER_CROP = ["waist down", "from the waist down", "hips down"];
 const FRAMINGS = [
-  { framing: "face", cues: ["face shot", "face only", "just her face", "headshot", "her face filling"], tags: ["close-up", "portrait"] },
-  { framing: "waist", cues: ["waist up", "from the waist", "upper body", "chest up", "bust shot", "shoulders up"], tags: ["(upper_body:1.3)"] },
-  { framing: "knees", cues: ["knees up", "from the knees", "thighs up", "thigh up", "mid-thigh", "mid thigh"], tags: ["cowboy_shot"] },
-  { framing: "full", cues: ["full body", "full-body", "head to toe", "whole body", "full length", "full-length", "whole outfit"], tags: ["full_body"] },
+  { framing: "lower", cues: LOWER_CROP, tags: ["lower_body"] },
+  { framing: "face", cues: ["face shot", "face only", "just her face", "headshot", "her face filling", ...CLOSE_UP], tags: ["close-up", "portrait"] },
+  { framing: "waist", cues: ["waist up", "waist-up", "waist-high", "from the waist", "upper body", "chest up", "bust shot", "shoulders up", "medium shot", "half body", "half-body", ...MEDIUM_CLOSE_UP], tags: ["(upper_body:1.3)"] },
+  { framing: "knees", cues: ["knees up", "from the knees", "thighs up", "thigh up", "mid-thigh", "mid thigh", "three-quarter", "three quarter", "cowboy shot", "from the thighs"], tags: ["cowboy_shot"] },
+  { framing: "full", cues: ["full body", "full-body", "head to toe", "whole body", "full length", "full-length", "whole outfit", "full shot"], tags: ["full_body"] },
 ];
-const framingOf = (caption: string) => FRAMINGS.find((row) => saysAny(caption.toLowerCase(), row.cues))?.framing ?? null;
+function framingOf(caption: string) {
+  const text = caption.toLowerCase();
+  if (saysAny(text, LOWER_CROP)) return "lower";
+  if (saysAny(text, MEDIUM_CLOSE_UP) || (saysAny(text, CLOSE_UP) && says(text, "selfie"))) return "waist";
+  return FRAMINGS.find(row => saysAny(text, row.cues))?.framing ?? null;
+}
 const framingTags = (framing: string) => FRAMINGS.find((row) => row.framing === framing)?.tags ?? [];
 const FULL_BODY_CUES = FRAMINGS.find((row) => row.framing === "full")?.cues ?? [];
 const FRAMING_TAGS = new Set(["close-up", "portrait", "upper_body", "cowboy_shot", "full_body", ...FRAMINGS.flatMap((row) => row.tags)]);
 
 function framingInTags(tags: string[]): string | null {
+  if (tags.includes("lower_body")) return "lower";
   if (tags.includes("portrait")) return "face";
   if (tags.includes("full_body")) return "full";
   if (tags.some((tag) => tag === "upper_body" || tag.startsWith("(upper_body:"))) return "waist";
@@ -379,7 +389,8 @@ function photoPose(caption: string, bare: boolean): { tags: string[]; negative: 
   tags = closeLying(text, tags) ?? withFraming(text, tags);
   if (saysAny(text, BUSY_HAND_CUES)) tags = tags.filter((tag) => !PLACEMENT_TAGS.has(tag));
   const noCamera = saysAny(text, CAMERA_CUES) ? [] : ["camera"];
-  return selfieShot(text, tags) ?? { tags, negative: [...lyingNegative(tags), ...noCamera] };
+  const pose = selfieShot(text, tags) ?? { tags, negative: [...lyingNegative(tags), ...noCamera] };
+  return { ...pose, tags: withFraming(text, pose.tags) };
 }
 
 // ---- Caption clean-up ---------------------------------------------------------------------------

@@ -35,6 +35,11 @@ export function preparePhotoWorkflow(original: Workflow, kind: "photo" | "cg", p
     node("31").inputs.positive = ["50", 0];
     node("31").inputs.negative = ["5", 0];
     for (const id of ["12", "39", "51"]) delete workflow[id];
+    // VE 0.8's CG template puts a position LoRA after the character LoRA.
+    // A free-form DM photo has no staged position.
+    bypassLora(workflow, "101");
+  }
+  if (workflow["100"]?.class_type === "LoraLoader") {
     const lora = characterLora as { name?: unknown; weight?: unknown } | undefined;
     if (lora && typeof lora.name === "string" && lora.name.trim()) {
       node("100").inputs.lora_name = lora.name;

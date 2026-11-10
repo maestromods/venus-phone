@@ -24,6 +24,24 @@ const cg = {
   '9': node('PreviewImage', { images: ['31', 0] }),
 };
 const prompts = { positive: 'portrait at a cafe', negative: 'blurry' };
+test('VE 0.8 position and character placeholders are bypassed without dangling graph links', () => {
+  const original = structuredClone(cg);
+  for (const entry of Object.values(original)) {
+    for (const link of Object.values(entry.inputs)) if (Array.isArray(link) && link[0] === '100') link[0] = '101';
+  }
+  original['101'] = node('LoraLoader', { model: ['100', 0], clip: ['100', 1], lora_name: 'positionLora.safetensors' });
+  const before = structuredClone(original);
+  for (const lora of [undefined, { name: 'configured.safetensors', weight: 0.6 }]) {
+    const { workflow } = preparePhotoWorkflow(original, 'cg', prompts, 17, {}, lora);
+    assert.equal(workflow['101'], undefined);
+    assert.deepEqual(workflow['31'].inputs.model, [lora ? '100' : '3', 0]);
+    assert.deepEqual(workflow['4'].inputs.clip, [lora ? '100' : '3', 1]);
+    const solo = preparePhotoWorkflow({ ...cg, '41': node('SaveImage') }, 'photo', prompts, 17, {}, lora);
+    assert.equal(solo.workflow['100']?.inputs.lora_name, lora?.name);
+    assert.deepEqual(solo.workflow['4'].inputs.clip, [lora ? '100' : '3', 1]);
+  }
+  assert.deepEqual(original, before);
+});
 test('VE photo workflows honor upscaler, hand-detector and controlnet selections', () => {
   const original = { ...structuredClone(cg), '41': node('SaveImage'),
     '80': node('UpscaleModelLoader', { model_name: 'old.pth' }),

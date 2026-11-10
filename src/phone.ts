@@ -12,7 +12,8 @@ import { APP_DATA_DIR, writeJsonAtomic } from "./config.js";
 import { formatDateBanner, seasonOfTerm, type Season } from "./game/calendar.js";
 import { GameFiles, isGameRunning, isPhotoFile, SAFE_CHAR_ID, SAFE_NUMERIC_ID } from "./game/files.js";
 import { semesterOf } from "./game/semesters.js";
-import { godlikeStandardsOn, readLorebook } from "./game/lorebook.js";
+import { readModSwitches, readLorebook } from "./game/lorebook.js";
+import { recentFeedLines, savedPhoto } from "./game/feed.js";
 import { emptyFlags, type Character, type ChatMessage, type ChatPhoto, type Conversation, type PlaythroughRecord, type SaveFile } from "./game/types.js";
 import { completeStructured, type LlmSettings } from "./llm.js";
 import { stripImageMetadata } from "./metadata.js";
@@ -204,7 +205,7 @@ export class Phone {
         if (!isPhotoFile(message.photo.file)) { message.photo.pending = false; message.photo.failed = true; continue; }
         try {
           const dest = path.join(this.files.photosDir(saved.playthroughId, charId), message.photo.file);
-          const exists = await fs.access(dest).then(() => true, () => false);
+          const exists = Boolean(await this.files.findPhoto(saved.playthroughId, charId, message.photo.file));
           // Adopt legacy pending photos before the app can delete their messages or allocate again.
           const owner = await claimPhoto(dest, message.id, exists);
           if (!exists || owner.messageId !== message.id || !owner.completed) throw new Error("Photo is not complete.");
@@ -304,6 +305,20 @@ export class Phone {
   private view(): SaveFile {
     const { base, state, record } = this.require();
     const view = applyDelta(base, state.delta, false);
+    for (const conversation of Object.values(view.bunnyboard.conversations)) {
+      for (const message of conversation.messages) {
+        if (message.ex?.["photo-feature"]?.data === undefined) continue;
+        const photo = savedPhoto(message);
+        delete message.photo;
+        if (typeof photo.tier !== "string") continue;
+        const file = typeof photo.file === "string" && isPhotoFile(photo.file) ? photo.file : "";
+        message.photo = {
+          tier: isPhotoTier(photo.tier) && photo.tier !== "none" ? photo.tier : "explicit",
+          scene: typeof photo.scene === "string" ? photo.scene : "",
+          file, pending: photo.pending === true, failed: photo.failed === true || (!file && !photo.pending),
+        };
+      }
+    }
     // Profiles belong to the record, not the save. Join them only for display and prompts.
     for (const [id, profile] of Object.entries(semesterOf(record, base.semester).profiles)) {
       if (view.charInfo[id]) view.charInfo[id] = { ...profile, ...view.charInfo[id] };
@@ -751,13 +766,14 @@ export class Phone {
 
   private async promptContext(save: SaveFile, character: Character, allowedPhoto: ReturnType<typeof allowedPhotoTier>, requested: boolean) {
     const { record, state } = this.require();
-    const [lorebook, godlikeStandards] = await Promise.all([
+    const [lorebook, mods] = await Promise.all([
       readLorebook(this.files, state.playthroughId, Array.isArray(record.mods) && record.mods.includes("city-life")),
-      godlikeStandardsOn(this.files),
+      readModSwitches(this.files),
     ]);
     return {
       lorebook,
-      godlikeStandards,
+      godlikeStandards: mods["godlike-standards"] === true,
+      feedLines: mods.bunnyfeeds === true ? recentFeedLines(save, character, this.characters, this.season(), mods["photo-feature"] === true) : [],
       save,
       character,
       roster: [...this.characters.values()].filter((c) => c.charId !== character.charId),
@@ -866,10 +882,12 @@ export class Phone {
     const dir = this.files.photosDir(playthroughId, character.charId);
     await fs.mkdir(dir, { recursive: true });
     const taken = new Set<string>();
-    try {
-      for (const name of await fs.readdir(dir)) taken.add(name.replace(/\.phone\.json$/, ""));
-    } catch {
-      // No photos yet.
+    for (const folder of this.files.photoDirs(playthroughId, character.charId)) {
+      try {
+        for (const name of await fs.readdir(folder)) taken.add(name.replace(/\.phone\.json$/, "").replace(/\.json$/, ".png"));
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
     }
     for (const m of save.bunnyboard.conversations[character.charId]?.messages ?? []) if (m.photo?.file) taken.add(m.photo.file);
     let highest = 0;
@@ -914,7 +932,9 @@ export class Phone {
       // Logged like the game logs its own renders, so a picture that misses can be traced.
       console.log(`[photo] ${character.firstName} (${photo.tier}): "${photo.scene}"`);
       console.log(`[photo] → ${prompts.positive.replace(/\n\n/g, " | ")}`);
-      await renderPhoto(files, prompts, dest, character.lora);
+      const [modernDir] = files.photoDirs(playthroughId, character.charId);
+      const output = await files.photoRecordVersion() ? path.join(modernDir, photo.file) : dest;
+      await renderPhoto(files, prompts, output, character.lora);
       await writeJsonAtomic(dest + ".phone.json", { messageId: message.id, completed: true });
       await settle({ tier: photo.tier, scene: photo.scene, file: photo.file });
     } catch (err) {
@@ -927,16 +947,8 @@ export class Phone {
     const { state } = this.require();
     this.characterOf(charId);
     if (!isPhotoFile(file)) throw new PhoneError("Not found.", 404);
-    const dir = this.files.photosDir(state.playthroughId, charId);
-    for (const candidate of [file, file.replace(/\.png$/, ".webp"), file.replace(/\.webp$/, ".png")]) {
-      const full = path.join(dir, candidate);
-      try {
-        await fs.access(full);
-        return full;
-      } catch {
-        continue;
-      }
-    }
+    const full = await this.files.findPhoto(state.playthroughId, charId, file);
+    if (full) return full;
     throw new PhoneError("Not found.", 404);
   }
 
@@ -986,7 +998,9 @@ export class Phone {
         warning: `The game has changed since this phone session began. Sync will add ${messages} pending message changes to save ${baseId} (${formatDateBanner(base.date, base.time, seasonOfTerm(semester.index))}). Newer game progress is kept. Phone deletions and block/unblock decisions will also apply, and affected chat recaps will be cleared. Existing save files are never overwritten. Continue?`,
       };
     }
-    const merged = applyDelta(base, state.delta, true);
+    const hasNewPhotos = Object.values(state.delta.added).some(messages => messages.some(m => m.photo));
+    const photoVersion = hasNewPhotos ? await this.files.photoRecordVersion() : undefined;
+    const merged = applyDelta(base, state.delta, true, photoVersion);
     if (rebased) {
       const touched = new Set([...Object.keys(state.delta.added), ...Object.keys(state.delta.deleted ?? {}), ...Object.keys(state.delta.summaries)]);
       for (const id of touched) {
@@ -1166,7 +1180,7 @@ function checkedImage(image: TextingImage): Buffer {
  * Lays the phone's delta over a save without touching anything else in it. For the game, your
  * photos become a written note on your message and her unread texts raise the in-game badge.
  */
-export function applyDelta(base: SaveFile, delta: Delta, forGame: boolean): SaveFile {
+export function applyDelta(base: SaveFile, delta: Delta, forGame: boolean, photoVersion?: string): SaveFile {
   const save: SaveFile = structuredClone(base);
   save.bunnyboard.conversations ??= {};
   for (const [charId, conversation] of Object.entries(save.bunnyboard.conversations)) {
@@ -1188,6 +1202,10 @@ export function applyDelta(base: SaveFile, delta: Delta, forGame: boolean): Save
       .filter((m) => !have.has(m.id))
       .map((m) => {
         const copy = structuredClone(m);
+        if (forGame && photoVersion && copy.photo) {
+          copy.ex = { ...copy.ex, "photo-feature": { v: photoVersion, data: copy.photo } };
+          delete copy.photo;
+        }
         if (forGame && copy.readerPhoto) {
           const photo = copy.readerPhoto as ReaderPhoto;
           copy.text = `${copy.text}${copy.text ? " " : ""}${readerPhotoNote(photo.scene)}`;
