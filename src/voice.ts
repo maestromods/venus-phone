@@ -98,7 +98,7 @@ export function speechSegments(text: string): string[] {
     const cut = sentence && sentence.index! > 35 ? sentence.index! + sentence[0].trimEnd().length : Math.max(prefix.lastIndexOf(" "), 1);
     chunks.push(remaining.slice(0, cut).trim()); remaining = remaining.slice(cut).trim();
   }
-  if (!chunks.length) throw new PhoneError("She didn't give a spoken reply. Try again.", 502);
+  if (!chunks.length) throw new PhoneError("The character returned no spoken reply. Try again.", 502);
   return chunks;
 }
 
@@ -132,8 +132,8 @@ export class VoiceCalls {
   }
   async turn(owner: string, id: string, text: string, opening: boolean, llm: LlmSettings) {
     const call = this.get(owner, id);
-    if (call.ended) throw new PhoneError("She ended the call.", 409);
-    if (call.busy || call.pending) throw new PhoneError("Interrupt or finish her reply before speaking again.", 409);
+    if (call.ended) throw new PhoneError("The call has ended.", 409);
+    if (call.busy || call.pending) throw new PhoneError("Interrupt or finish the reply before speaking again.", 409);
     if (!opening && !text.trim()) throw new PhoneError("Say or type something first.");
     call.busy = true;
     const epoch = ++call.epoch;
@@ -146,8 +146,8 @@ export class VoiceCalls {
       if (!current()) throw new PhoneError("Call interrupted.", 409);
       const background = buildTextingPrompt(context, "", undefined, "Background only").user.split("\nYOUR TURN\n")[0];
       const request = {
-        system: "You perform one character in a fictional phone conversation. Speak in her own voice, with her personality, relationship and memories. Return only JSON matching the schema.",
-        user: `${background}\n\nLIVE PHONE CALL\n${opening ? "The reader is calling her. Usually she answers with a short, natural greeting. She can decline if their established situation gives her a reason. Do not invent a greeting from the reader." : "Reply to the reader's latest spoken or typed words. The reader may use accessibility typing; treat it as their side of the call."}\nWrite speech, with natural contractions and varied rhythm. Usually 1-3 short sentences, at most 75 words. Occasional um, uh, ah, hmm, a pause or a self-correction is welcome when it fits. Most sentences need no filler. Never add an um or laugh mechanically to every reply. You can use [chuckle], [laugh], [sigh] or [gasp] sparingly. No emoji, stage directions, markdown or descriptions of actions.\nKeep talking freely. No compulsory question, repeated pet names, repeated reassurance, or routine goodnight/goodbye. The save clock is not a bedtime deadline. Let the subject develop; don't invent errands or tiredness to end the call.\nUse action continue normally. Use hangup if the reader says goodbye or an established reason calls for it. Use decline only for an unanswered opening call. Use block only for a convincing in-character reason to cut contact such as harassment, cruelty, threats or repeated boundary violations; ordinary disagreement or a short reply isn't a reason. Blocking ends the call and future texts. She can decline a request without ending the call.\nRecent [phone call] entries are conversation history. Do not claim to remember unheard or interrupted words. speech contains only what she says aloud.`,
+        system: "You perform one character in a fictional phone conversation. Use the character's voice, personality, relationship and memories. Follow the pronouns in the background. Return only JSON matching the schema.",
+        user: `${background}\n\nLIVE PHONE CALL\n${opening ? "The reader is calling. Usually answer with a short, natural greeting. Decline if the established situation gives the character a reason. Do not invent a greeting from the reader." : "Reply to the reader's latest spoken or typed words. The reader may use accessibility typing; treat it as their side of the call."}\nWrite speech, with natural contractions and varied rhythm. Usually 1-3 short sentences, at most 75 words. Occasional um, uh, ah, hmm, a pause or a self-correction is welcome when it fits. Most sentences need no filler. Never add an um or laugh mechanically to every reply. You can use [chuckle], [laugh], [sigh] or [gasp] sparingly. No emoji, stage directions, markdown or descriptions of actions.\nKeep talking freely. No compulsory question, repeated pet names, repeated reassurance, or routine goodnight/goodbye. The save clock is not a bedtime deadline. Let the subject develop; don't invent errands or tiredness to end the call.\nUse action continue normally. Use hangup if the reader says goodbye or an established reason calls for it. Use decline only for an unanswered opening call. Use block only for a convincing in-character reason to cut contact such as harassment, cruelty, threats or repeated boundary violations; ordinary disagreement or a short reply isn't a reason. Blocking ends the call and future texts. The character can decline a request without ending the call.\nRecent [phone call] entries are conversation history. Do not claim to remember unheard or interrupted words. speech contains only what the character says aloud.`,
         schema: { name: "phone_call_reply", schema: { type: "object", properties: { speech: { type: "string" }, action: { type: "string", enum: ["continue", "hangup", "decline", "block"] } }, required: ["speech", "action"], additionalProperties: false } },
       };
       const raw = await completeStructured(llm, request, signal) as { speech?: unknown; action?: unknown };
@@ -180,7 +180,7 @@ export class VoiceCalls {
   }
   async transcribe(owner: string, id: string, audio: string) {
     const call = this.get(owner, id);
-    if (call.ended) throw new PhoneError("She ended the call.", 409);
+    if (call.ended) throw new PhoneError("The call has ended.", 409);
     return this.engine.request("transcribe", { audio }, call.controller.signal);
   }
   async end(owner: string, id: string) {

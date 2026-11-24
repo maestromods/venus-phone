@@ -1,7 +1,11 @@
-// Shapes of VU 0.4.0–0.8.0 / VE 0.8.0 files (save schemas 12 / 13).
+// Shapes of VU 0.4.0–0.9.2 / VE 0.9.2 files (save schemas 12 / 13).
 // Only the fields this app reads or writes are typed; everything else is carried through untouched.
 
 export type Sender = "player" | "contact" | "system";
+export type Gender = "female" | "male";
+export type ReaderPronouns = "he" | "she" | "they";
+export type Attraction = Record<Gender, boolean>;
+export type RomanceSetting = Record<Gender, "none" | "sexuality" | "all" | "everyone">;
 export type PhotoTier = "none" | "everyday" | "suggestive" | "explicit";
 export type StatKey = "brain" | "body" | "heart";
 export type Stats = Record<StatKey, number>;
@@ -23,6 +27,7 @@ export interface ChatMessage {
   time: number;
   error?: boolean;
   photo?: ChatPhoto;
+  outgoingPhoto?: { kind: "description"; description: string } | { kind: "image"; file: string; description?: string };
   ex?: Record<string, { v: string; data: unknown }>;
   [extra: string]: unknown;
 }
@@ -59,6 +64,9 @@ export interface Flags {
 }
 
 export interface CharInfo {
+  attractedTo?: Attraction;
+  datingSince?: number;
+  romanceScenes?: number;
   memories: Memory[];
   flags?: Flags;
   nameKnown?: boolean;
@@ -76,6 +84,8 @@ export interface CharInfo {
 }
 
 export interface SaveFile {
+  npcRelationships?: Record<string, { affinity: number; dating?: number; crush?: string[]; cheated?: Record<string, number>; [extra: string]: unknown }>;
+  transfers?: Array<{ charId: string; profile: CharacterProfile; [extra: string]: unknown }>;
   schemaVersion: number;
   /** Absent for the first semester; otherwise a key in the playthrough's semesters. */
   semester?: string;
@@ -95,6 +105,8 @@ export interface SaveFile {
 }
 
 export interface PlaythroughRecord {
+  playerPronouns?: ReaderPronouns;
+  romance?: RomanceSetting;
   chars: string[];
   playerFirstName: string;
   playerLastName: string;
@@ -105,6 +117,8 @@ export interface PlaythroughRecord {
 }
 
 export interface CharacterProfile {
+  attractedTo?: Attraction;
+  transferredAt?: number;
   major?: string;
   year?: number;
   pursuing?: string;
@@ -125,6 +139,8 @@ export interface CustomOutfit {
 }
 
 export interface Character {
+  gender?: "male";
+  attractedTo?: Attraction;
   charId: string;
   firstName: string;
   lastName: string;

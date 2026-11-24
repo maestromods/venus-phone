@@ -486,7 +486,7 @@ function renderThread(thread, scroll, held = new Set()) {
   if (!revealing) $("typing").hidden = !thread.busy && !unblocking;
 
   const shown = thread.messages.filter((m) => !held.has(m.id));
-  const key = JSON.stringify([thread.busy, revealing, editingMessage, unblocking, held.size > 0, ...shown.map((m) => [m.id, m.text, m.canRegenerate, m.photo?.pending, m.photo?.failed, m.reaction])]);
+  const key = JSON.stringify([thread.busy, revealing, editingMessage, unblocking, held.size > 0, ...shown.map((m) => [m.id, m.text, m.canRegenerate, m.photo?.pending, m.photo?.failed, m.photo?.file, m.outgoingPhoto, m.reaction])]);
   if (key === lastRenderKey) return;
   lastRenderKey = key;
 
@@ -510,6 +510,17 @@ function renderThread(thread, scroll, held = new Set()) {
     bubble.append(el("span", { class: "sr-only", text: mine ? "You: " : `${thread.name.split(" ")[0]}: ` }));
     if (m.text) bubble.append(document.createTextNode(m.text));
     if (m.photo) bubble.append(photoNode(thread, m));
+    if (m.outgoingPhoto && !m.upload) {
+      const attachment = m.outgoingPhoto;
+      if (attachment.kind === "image") {
+        const src = `/api/photo/${encodeURIComponent(thread.charId)}/${encodeURIComponent(attachment.file)}`;
+        const alt = attachment.description || "Your photo";
+        bubble.append(el("button", { type: "button", class: "photo-btn", "aria-label": `Open photo. ${alt}`, onclick: () => viewPhoto(src, alt) },
+          el("img", { class: "photo", src, alt, loading: "lazy" })));
+      } else {
+        bubble.append(el("div", { class: "photo-wait", text: `Photo: ${attachment.description}` }));
+      }
+    }
     if (m.upload) {
       const src = `/api/upload/${thread.charId}/${m.upload.file}`;
       const alt = `Your photo: ${m.upload.scene}`;

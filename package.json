@@ -1,8 +1,8 @@
 {
   "name": "venus-phone",
-  "version": "0.8.0",
+  "version": "0.9.2",
   "private": true,
-  "description": "LAN-only phone companion for Venus University: text the girls from your save and sync the chats back into the game.",
+  "description": "LAN-only phone companion for Venus University: text characters from your save and sync chats back into the game.",
   "type": "module",
   "license": "AGPL-3.0-only",
   "engines": {
@@ -19,4 +19,3 @@
     "typescript": "5.7.2"
   }
 }
-

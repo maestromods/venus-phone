@@ -17,9 +17,10 @@ const SAVE_SCHEMA_VERSIONS = new Set([12, 13]);
 const MANUAL_ID = /^manual(0[1-9]|[1-9][0-9]{1,3})$/;
 const PHOTO_FILE = /^[a-z0-9]+_(?:bunnyboard|chat)_\d{3,6}\.(?:png|webp)$/;
 const LEGACY_PHOTO_FILE = /^photo_\d{1,20}_[a-f0-9]{8}\.png$/;
+const RANDOM_PHOTO_FILE = /^[a-z0-9]{10}\.(?:png|webp)$/;
 
 export function isPhotoFile(file: string): boolean {
-  return PHOTO_FILE.test(file) || LEGACY_PHOTO_FILE.test(file);
+  return PHOTO_FILE.test(file) || LEGACY_PHOTO_FILE.test(file) || RANDOM_PHOTO_FILE.test(file);
 }
 
 export function isSaveId(saveId: string): boolean {
@@ -68,7 +69,10 @@ export class GameFiles {
     const marker = path.join(this.gameDir, "resources", "venus-extracurriculars.json");
     try {
       const ve = JSON.parse(await fs.readFile(marker, "utf8"));
-      if (ve?.build === "Venus Extracurriculars" && /^0\.8\.\d+$/.test(ve.buildVersion)) return "1.7.2";
+      if (ve?.build === "Venus Extracurriculars") {
+        if (/^0\.8\.\d+$/.test(ve.buildVersion)) return "1.7.2";
+        if (ve.buildVersion === "0.9.2") return "1.9.0";
+      }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
@@ -126,7 +130,7 @@ export class GameFiles {
     const save = JSON.parse(raw) as SaveFile;
     if (!SAVE_SCHEMA_VERSIONS.has(save.schemaVersion)) {
       throw new Error(
-        `This save is schema version ${save.schemaVersion}; this app understands versions 12 and 13 (Venus University 0.4.0–0.8.0, including VE 0.8.0).`,
+        `This save is schema version ${save.schemaVersion}; this app understands versions 12 and 13 (Venus University 0.4.0–0.9.2, including VE 0.9.2).`,
       );
     }
     if (!save.bunnyboard || typeof save.bunnyboard !== "object") throw new Error("This save has no phone data.");

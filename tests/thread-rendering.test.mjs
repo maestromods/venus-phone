@@ -22,8 +22,8 @@ test('reactions stay visible throughout reply animation and controls unlock afte
   const buttons = () => find(n => n.tag === 'button');
   const reactions = () => find(n => n.class === 'reaction').map(n => n.text);
   const thread = { charId: 'girl', name: 'Girl', busy: false, blocked: false, messages: [
-    { id: 'old', sender: 'player', text: 'Earlier message', stamp: 'Today', reaction: '❤️' },
-    { id: 'p', sender: 'player', text: 'Hello', stamp: 'Today', reaction: '😂' },
+    { id: 'old', sender: 'player', text: 'Earlier message', stamp: 'Today', reaction: '❤️', outgoingPhoto: { kind: 'image', file: 'uploadabc_chat_001.webp', description: 'A garden' } },
+    { id: 'p', sender: 'player', text: 'Hello', stamp: 'Today', reaction: '😂', outgoingPhoto: { kind: 'description', description: 'A sunset' } },
     { id: 'r1', sender: 'contact', text: 'Hi', stamp: 'Today' },
     { id: 'r2', sender: 'contact', text: 'That made me laugh', stamp: 'Today', canRegenerate: true },
   ] };
@@ -45,6 +45,8 @@ test('reactions stay visible throughout reply animation and controls unlock afte
   assert.ok(phases.length >= 4);
   for (const visible of phases) assert.deepEqual(visible, ['❤️', '😂']);
   assert.deepEqual(reactions(), ['❤️', '😂']);
+  assert.deepEqual(find(n => n.tag === 'img').map(n => n.src), ['/api/photo/girl/uploadabc_chat_001.webp']);
+  assert.equal(find(n => n.text === 'Photo: A sunset').length, 1);
   assert.ok(buttons().every(button => !button.disabled));
   await vm.runInContext('editMessage(thread, thread.messages[0], "delete")', context);
   assert.ok(buttons().every(button => !button.disabled));
