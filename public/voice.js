@@ -212,7 +212,7 @@ async function turn(text, initial = false) {
     const reply = await post("turn", { text, opening: initial }, signal);
     for (let index = 0; index < reply.segments.length; index++) {
       if (mine !== version || !callId) return;
-      phase = "synthesizing"; status("Preparing her voice…"); controls();
+      phase = "synthesizing"; status("Preparing the voice…"); controls();
       const audio = await post("audio", { replyId: reply.replyId, index }, signal);
       if (mine !== version || !callId) return;
       phase = "speaking"; status("She’s speaking…");
@@ -286,7 +286,7 @@ async function refreshStatus() {
     byId("voice-model-status").textContent = result.detail + (result.device ? ` (${result.device === "cuda" ? "GPU" : "CPU"})` : "");
     byId("voice-load").disabled = result.loading || result.ready;
     byId("voice-load").textContent = result.ready ? "Models ready" : result.loading ? "Loading models…" : "Load voice models";
-    if (!callId && !previewing && !callStarted) status(result.ready ? "Ready when you are." : result.loading ? "Getting her voice ready…" : "Open options to set up her voice.");
+    if (!callId && !previewing && !callStarted) status(result.ready ? "Ready when you are." : result.loading ? "Getting the voice ready…" : "Open options to set up the voice.");
     controls();
     if (result.ready) { clearInterval(statusTimer); await refreshVoices(); }
   } catch (e) { error(e.message); }

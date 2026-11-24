@@ -1,15 +1,15 @@
 # Venus Phone
 
-A phone companion for **Venus University**. Text the girls from your save on your phone over your home Wi-Fi, get replies in character, swap photos, and sync the chats back into the game.
+A phone companion for **Venus University**. Text the characters from your save on your phone over your home Wi-Fi, get replies in character, swap photos, and sync the chats back into the game.
 
 Unofficial fan project. Not made by or affiliated with Venus Dev. No game files, art or characters are included; it reads your own install.
 
 ## Requirements
 
-- Windows PC with Venus University 0.4.0–0.8.0, including Venus Extracurriculars (VE) 0.8.0 on VU 0.8.0 (save schemas 12 and 13)
+- Windows PC with Venus University 0.4.0–0.9.2, including Venus Extracurriculars (VE) 0.9.2 on VU 0.9.2 (save schemas 12 and 13)
 - [Node.js](https://nodejs.org/) 20 or newer
 - A Gemini API key, or a key for an OpenAI-compatible chat provider such as OpenRouter or NanoGPT; the selected model must support structured JSON replies
-- For photos from the girls: the game's managed local ComfyUI, set up from inside the game (external ComfyUI servers are not supported)
+- For photos from characters: the game's managed local ComfyUI, set up from inside the game (external ComfyUI servers are not supported)
 
 ## Setup
 
@@ -45,17 +45,17 @@ This provider choice supplies both text messages and dialogue for experimental c
 
 ## Using it
 
-- **Chats:** everyone who has given you her number in that save.
+- **Chats:** everyone who has given you their number in that save.
 - **Changing saves or folders:** wait for replies, calls, and photos to finish. Folder changes stop when there are unsynced changes; sync first, or use **Change save** to explicitly discard them. A failed selection keeps the previous session.
-- **📷:** send her a photo. She reacts to what is in it. Location and other metadata are stripped first. Your selected model must accept images. For an OpenAI-compatible provider, choose its image-capable model under **Photo message model** in Settings.
-- **"She texts first" (⏱ in each chat):** off, about every 5, 15 or 30 minutes, every 1–8 hours, or random (5 minutes to 4 hours). Set per girl, along with how many texts in a row (1–10) she can send before you reply. Never between 11pm and 8am.
-- **Her replies:** she sends a varied number of texts each time (usually one or two, sometimes more), and now and then reacts to your text with an emoji.
-- **Her photos:** she sends one when you ask, or now and then on her own. Ask for a selfie, mirror pic, full body, timer shot or candid and she follows it; otherwise the kind of shot varies. They are drawn using the game's local ComfyUI. DM photo behavior and relationship-based photo tiers are adapted from **Photo Feature**, naudh1r's mod in **Venus Extracurriculars**; these features are not part of the base game's Photos feature.
+- **📷:** send a photo. The character reacts to what is in it. Location and other metadata are stripped first. Your selected model must accept images. For an OpenAI-compatible provider, choose its image-capable model under **Photo message model** in Settings.
+- **Incoming texts (⏱ in each chat):** off, about every 5, 15 or 30 minutes, every 1–8 hours, or random (5 minutes to 4 hours). Set per contact, along with how many texts in a row (1–10) they can send before you reply. Never between 11pm and 8am.
+- **Replies:** each character sends a varied number of texts each time (usually one or two, sometimes more), and now and then reacts to your text with an emoji.
+- **Photos:** each character sends one when you ask, or now and then on her own. Ask for a selfie, mirror pic, full body, timer shot or candid and the character follows it; otherwise the kind of shot varies. They are drawn using the game's local ComfyUI. DM photo behavior and relationship-based photo tiers are adapted from **Photo Feature**, naudh1r's mod in **Venus Extracurriculars**; these features are not part of the base game's Photos feature.
 - **Themes (Settings → Appearance):** Bunnyboard, Midnight, OLED (true black), Light, or match your device, plus an accent colour. On desktop you can also set a background around the chat (gradients or your own picture). Saved per device.
 - **Sync:** close the game, tap Sync, then load the newest slot save in the game. Sync always writes a *new* save; your existing saves are never changed. If the game saved since you started, your chats go on top of its newest save in the same semester. If the newest save belongs to a different semester (including another continuation branch), sync stops and keeps your unsynced chats rather than moving them onto the wrong calendar. Sync before continuing to a new semester.
 - **0.5.0 semesters:** contacts include that save's roster and graduates, dates follow its spring/fall calendar, and character profiles come from the matching semester. Sync preserves the source save's schema and additional game fields.
 - **VE 0.4.0 / VU 0.6.0:** recognizes manual saves through slot 9,990, including when checking for newer progress before sync. Sync retains additional game/mod data, such as talent progress, challenge floors, story memory, preset variables, notifications and saved mini-games. Phone does not run game mod hooks or award talent points for texting.
-- **VE 0.7.0 / VU 0.7.0:** continues to use schema 13. Sync preserves mod-owned `ex` slices (including Prompt Studio's migrated variables), scene mod data and rollback marks without migrating or running them. Relationship and photo eligibility include remaining semester-break penalties and fresh likes among her latest three feed posts (five for Terminally Online). DM context includes her latest three disclosed secrets; undisclosed secrets stay private. Phone does not advance scenes or enrollment/application flows. Older supported saves remain supported.
+- **VE 0.7.0 / VU 0.7.0:** continues to use schema 13. Sync preserves mod-owned `ex` slices (including Prompt Studio's migrated variables), scene mod data and rollback marks without migrating or running them. Relationship and photo eligibility include remaining semester-break penalties and fresh likes among the character's latest three feed posts (five for Terminally Online). DM context includes the character's latest three disclosed secrets; undisclosed secrets stay private. Phone does not advance scenes or enrollment/application flows. Older supported saves remain supported.
 - **Lorebook:** uses the selected playthrough's setting override and matching edited/custom entries from `lorebook.json`. Shipped entries edited only in their keys or text inherit the other field; City Life overrides follow that playthrough's City Life switch. The sidecar is read fresh for each reply and is never rewritten by sync. Phone still uses its own texting/call prompts; Prompt Studio layouts and unedited world lore are not imported.
 - **VE character context:** honors the enabled Godlike Standards mod's romance requirements and Starting Challenge's negative stat descriptions. Saved PNG/WebP photos and legacy VE photo names display in chat.
 - **0.5.0 photo generation:** uses the installed Photo Feature workflow when available, otherwise adapts the base game's CG workflow in memory. The fallback removes the staged pose requirement and placeholder character LoRA, honors a real character LoRA when present, and uses the game's managed checkpoint, style LoRA and face-detector selections. Game workflows/settings are never rewritten.
@@ -100,7 +100,11 @@ Settings can also come from environment variables: `VENUS_GAME_DIR`, `VENUS_PHON
 
 Pull requests targeting `main` and pushes to `main` run **Build and test (Windows)** in GitHub Actions. The workflow installs locked dependencies and runs `npm test` on Windows with Node.js 22. Tests use synthetic saves and mocked AI/speech providers; no game install, API keys, voice models, or personal data are needed.
 
-VE 0.8.0 continues to use save schema 13. Phone reads migrated and legacy DM attachments, serves PNG or WebP photos from either storage layout, and writes new attachments in Photo Feature's format on VE 0.8.x. With Bunnyfeeds enabled, DMs can refer to the character's two latest public posts and conversations she has publicly answered there. See the [VE 0.8.0 release](https://github.com/venus-extracurriculars/build/releases/tag/v0.8.0).
+VE 0.9.2 continues to use save schema 13. Phone includes accepted transfer students, uses player pronouns and character gender, respects settled attraction and romance settings, and includes public NPC partners in DM and call context. Pending transfers remain in the game's care.
+
+Phone reads legacy and migrated DM attachments, including Photo Feature 1.9.0's random PNG/WebP filenames and the game's outgoing image/description attachments. New character photos sync into the versioned Photo Feature slice; photos sent from Phone sync as native description attachments on VE 0.9.2. Existing attachments and mod-owned state are preserved. Male photo prompts use male appearance tags and the updated caption rules. With Bunnyfeeds enabled, DMs can refer to the two latest public posts and publicly answered comments. See the [VE 0.9.2 release](https://github.com/venus-extracurriculars/build/releases/tag/v0.9.2).
+
+Phone's incoming-text scheduler is independent of VE's Incoming Texts mod; this update does not change that mod's compatibility status.
 
 ## Credits
 
@@ -121,7 +125,7 @@ Conversation prompts favor ongoing, natural back-and-forth without forced questi
 
 Editing clears the running chat recap to avoid carrying removed messages into future prompts. Future replies still use the surviving recent messages and the character's game memories, but details held only in the old recap will be forgotten.
 
-Hidden unblock gesture: open a blocked contact's chat and click or tap her profile picture in the header **three times within three seconds**. She sends an in-character message deciding to reopen contact, then you can text again. The gesture does nothing for an unblocked contact. A failed AI request leaves her blocked so you can retry. The unblock survives restarts and carries into the next synced game save; it does not erase history or prevent a later block.
+Hidden unblock gesture: open a blocked contact's chat and click or tap their profile picture in the header **three times within three seconds**. The character sends an in-character message deciding to reopen contact, then you can text again. The gesture does nothing for an unblocked contact. A failed AI request leaves the contact blocked so you can retry. The unblock survives restarts and carries into the next synced game save; it does not erase history or prevent a later block.
 
 Run `npm test` to build and check deletion, regeneration, blocking/unblocking, persistence, profile gestures and edit guards with a mocked AI provider.
 

@@ -188,7 +188,7 @@ test('message lifecycle', async (t) => {
       assert.equal(result.messages.at(-1).text, 'I unblocked you. We can try talking again.');
       assert.equal(result.messages.at(-2).text, 'Girl unblocked you.');
       assert.deepEqual(result.messages.filter(m => m.sender === 'player').map(m => m.id), originalPlayerIds);
-      assert.match(request.messages.at(-1).content, /She has decided to unblock the reader/);
+      assert.match(request.messages.at(-1).content, /The character has decided to unblock the reader/);
       assert.match(request.messages.at(-1).content, /The reader has not sent a new message/);
       const newer = structuredClone(p.base);
       newer.stats.brain = 9;

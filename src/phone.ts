@@ -14,6 +14,7 @@ import { GameFiles, isGameRunning, isPhotoFile, SAFE_CHAR_ID, SAFE_NUMERIC_ID } 
 import { semesterOf } from "./game/semesters.js";
 import { readModSwitches, readLorebook } from "./game/lorebook.js";
 import { recentFeedLines, savedPhoto } from "./game/feed.js";
+import { readerPronounsOf } from "./game/gender.js";
 import { emptyFlags, type Character, type ChatMessage, type ChatPhoto, type Conversation, type PlaythroughRecord, type SaveFile } from "./game/types.js";
 import { completeStructured, type LlmSettings } from "./llm.js";
 import { stripImageMetadata } from "./metadata.js";
@@ -226,7 +227,7 @@ export class Phone {
     const base = await this.files.readSave(state.playthroughId, state.baseSaveId);
     const record = await this.files.readRecord(state.playthroughId);
     const characters = new Map<string, Character>();
-    for (const charId of semesterOf(record, base.semester).chars) {
+    for (const charId of semesterOf(record, base.semester, base).chars) {
       const character = await this.files.readCharacter(charId);
       if (character) characters.set(charId, character);
     }
@@ -320,7 +321,7 @@ export class Phone {
       }
     }
     // Profiles belong to the record, not the save. Join them only for display and prompts.
-    for (const [id, profile] of Object.entries(semesterOf(record, base.semester).profiles)) {
+    for (const [id, profile] of Object.entries(semesterOf(record, base.semester, base).profiles)) {
       if (view.charInfo[id]) view.charInfo[id] = { ...profile, ...view.charInfo[id] };
     }
     return view;
@@ -330,13 +331,13 @@ export class Phone {
   contactIds(): string[] {
     if (!this.state || !this.base || !this.record) return [];
     const save = this.view();
-    return semesterOf(this.record, this.base.semester).chars.filter((charId) => this.characters.has(charId) && save.charInfo[charId]?.flags?.gaveContactInfo);
+    return semesterOf(this.record, this.base.semester, save).chars.filter((charId) => this.characters.has(charId) && save.charInfo[charId]?.flags?.gaveContactInfo);
   }
 
   contacts() {
     const save = this.view();
     const { record } = this.require();
-    return semesterOf(record, save.semester).chars
+    return semesterOf(record, save.semester, save).chars
       .map((charId) => {
         const character = this.characters.get(charId);
         const info = save.charInfo[charId];
@@ -344,7 +345,7 @@ export class Phone {
         if (!character || !flags.gaveContactInfo) return null;
         const messages = save.bunnyboard.conversations[charId]?.messages ?? [];
         const last = [...messages].reverse().find((m) => m.sender !== "system") ?? messages[messages.length - 1];
-        const hasPhoto = Boolean(last?.photo || this.readerPhotoOf(last));
+        const hasPhoto = Boolean(last?.photo || last?.outgoingPhoto || this.readerPhotoOf(last));
         return {
           charId,
           name: `${character.firstName} ${character.lastName}`.trim(),
@@ -409,6 +410,7 @@ export class Phone {
               }
             : null,
           upload: mine ? { file: mine.file, scene: mine.scene } : null,
+          outgoingPhoto: m.sender === "player" ? m.outgoingPhoto : undefined,
           reaction: typeof m.exReaction === "string" ? m.exReaction : null,
         };
       }),
@@ -480,7 +482,7 @@ export class Phone {
     if (originalPhoto) {
       if (!photoSwitches.enabled) throw new PhoneError("Enable photos in Settings to regenerate this photo reply. The original reply has been kept.");
       const possible = allowedPhotoTier(character, save.charInfo[charId], save.date, photoSwitches);
-      const originalAllowed = settlePhoto({ sendPhoto: true, photoPrompt: originalPhoto.scene, stated: originalPhoto.tier, allowed: possible });
+      const originalAllowed = settlePhoto({ gender: character.gender ?? "female", sendPhoto: true, photoPrompt: originalPhoto.scene, stated: originalPhoto.tier, allowed: possible });
       if (!originalAllowed.send) throw new PhoneError("This photo is outside the current photo settings or relationship limits. The original reply has been kept.");
       allowedPhoto = originalAllowed.tier;
     }
@@ -506,7 +508,7 @@ export class Phone {
         ? await this.keepPhotoPromise(llm, request, character, save, initial, allowedPhoto, allowedPhoto, photoShot, true)
         : { reply: initial };
       if (!reply.messages.length) throw new PhoneError("No replacement was returned. Try again.", 502);
-      if (originalPhoto && !reply.blocked && !settlePhoto({
+      if (originalPhoto && !reply.blocked && !settlePhoto({ gender: character.gender ?? "female",
         sendPhoto: reply.sendPhoto, photoPrompt: reply.photoPrompt,
         stated: isPhotoTier(reply.photoTier) ? reply.photoTier : undefined, allowed: allowedPhoto,
       }).send) throw new PhoneError("No replacement photo was returned. Your original reply is still here; try regenerating again.", 502);
@@ -703,7 +705,7 @@ export class Phone {
     photoContext: boolean,
   ): Promise<{ reply: TextingReply; allowed: PhotoTier }> {
     if (possible === "none" || reply.blocked) return { reply, allowed };
-    const verdict = settlePhoto({
+    const verdict = settlePhoto({ gender: character.gender ?? "female",
       sendPhoto: reply.sendPhoto,
       photoPrompt: reply.photoPrompt,
       stated: isPhotoTier(reply.photoTier) ? reply.photoTier : undefined,
@@ -715,7 +717,7 @@ export class Phone {
 
     const name = character.firstName;
     const situation = described
-      ? `She meant to send the picture "${reply.photoPrompt.trim()}", but that is more than she sends right now (${verdict.note ?? "over her limit"}).`
+      ? `The character meant to send the picture "${reply.photoPrompt.trim()}", but that is beyond the current limit (${verdict.note ?? "over the limit"}).`
       : "No picture came with these texts.";
     const user = [
       request.user,
@@ -723,8 +725,8 @@ export class Phone {
       "FOLLOW-UP",
       `${name}'s reply was: ${reply.messages.map((m) => `"${m}"`).join(" ")}`,
       situation,
-      `Decide one thing first: do ${name}'s texts present a picture as being sent with them right now? Texts like "happy now?", "here", "took me forever to get the lighting right", "dont screenshot that" or "ur welcome" said right after he asked for one are handing a picture over, even without the word photo.`,
-      `If they do, set "sendsPicture" true and write the picture she sends with them. If she is refusing, teasing, stalling, asking what he wants, or saying "later", set "sendsPicture" false and leave "photoPrompt" empty.`,
+      `Decide one thing first: do ${name}'s texts present a picture as being sent with them right now? Texts like "happy now?", "here", "took me forever to get the lighting right", "dont screenshot that" or "ur welcome" said right after the reader asked for one are handing a picture over, even without the word photo.`,
+      `If they do, set "sendsPicture" true and write the picture being sent with them. If the character is refusing, teasing, stalling, asking what the reader wants, or saying "later", set "sendsPicture" false and leave "photoPrompt" empty.`,
       "",
       ...photoPromptLines(character, save.charInfo[character.charId], possible, shot),
       'Answer with only "sendsPicture", "photoPrompt" and "photoTier".',
@@ -776,8 +778,9 @@ export class Phone {
       feedLines: mods.bunnyfeeds === true ? recentFeedLines(save, character, this.characters, this.season(), mods["photo-feature"] === true) : [],
       save,
       character,
+      romance: record.romance,
       roster: [...this.characters.values()].filter((c) => c.charId !== character.charId),
-      player: { firstName: record.playerFirstName, lastName: record.playerLastName, termIndex: semesterOf(record, save.semester).index },
+      player: { firstName: record.playerFirstName, lastName: record.playerLastName, termIndex: semesterOf(record, save.semester).index, pronouns: readerPronounsOf(record) },
       season: this.season(),
       allowedPhoto,
       photoRequested: requested,
@@ -833,7 +836,7 @@ export class Phone {
     }
 
     if (!reply.blocked) {
-      const verdict = settlePhoto({
+      const verdict = settlePhoto({ gender: character.gender ?? "female",
         sendPhoto: reply.sendPhoto,
         photoPrompt: reply.photoPrompt,
         stated: isPhotoTier(reply.photoTier) ? reply.photoTier : undefined,
@@ -998,7 +1001,7 @@ export class Phone {
         warning: `The game has changed since this phone session began. Sync will add ${messages} pending message changes to save ${baseId} (${formatDateBanner(base.date, base.time, seasonOfTerm(semester.index))}). Newer game progress is kept. Phone deletions and block/unblock decisions will also apply, and affected chat recaps will be cleared. Existing save files are never overwritten. Continue?`,
       };
     }
-    const hasNewPhotos = Object.values(state.delta.added).some(messages => messages.some(m => m.photo));
+    const hasNewPhotos = Object.values(state.delta.added).some(messages => messages.some(m => m.photo || m.readerPhoto));
     const photoVersion = hasNewPhotos ? await this.files.photoRecordVersion() : undefined;
     const merged = applyDelta(base, state.delta, true, photoVersion);
     if (rebased) {
@@ -1208,7 +1211,11 @@ export function applyDelta(base: SaveFile, delta: Delta, forGame: boolean, photo
         }
         if (forGame && copy.readerPhoto) {
           const photo = copy.readerPhoto as ReaderPhoto;
-          copy.text = `${copy.text}${copy.text ? " " : ""}${readerPhotoNote(photo.scene)}`;
+          if (photoVersion === "1.9.0") {
+            copy.outgoingPhoto = { kind: "description", description: photo.scene };
+          } else {
+            copy.text = `${copy.text}${copy.text ? " " : ""}${readerPhotoNote(photo.scene)}`;
+          }
           delete copy.readerPhoto;
         }
         return copy;

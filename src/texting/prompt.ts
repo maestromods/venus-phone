@@ -6,11 +6,13 @@
 // Schedules, weather and location simulation remain owned by the game.
 
 import { formatChatDivider, formatDateBanner, formatSemesterProgress, type Season } from "../game/calendar.js";
-import { memoryLines, profileLines, readerText, relationshipLines } from "../game/relationship.js";
+import { affectionFor, memoryLines, profileLines, readerText, relationshipLines } from "../game/relationship.js";
 import { emptyFlags, type Character, type CharInfo, type ChatMessage, type Conversation, type SaveFile } from "../game/types.js";
 import { PHOTO_SCHEMA_FIELDS, photoPromptLines, type ShotType } from "./photos.js";
 import type { PhotoTier } from "../game/types.js";
 import { lorebookLines, type LoreContext } from "../game/lorebook.js";
+import { pronounsOf } from "../game/gender.js";
+import type { ReaderPronouns, RomanceSetting } from "../game/types.js";
 
 const TEXTING_HISTORY_CAP = 20;
 const MEMORY_BUDGET = 30;
@@ -18,10 +20,10 @@ const MEMORY_BUDGET = 30;
 export const TEXTING_PERSONA = [
   "You are RITA, author of steamy reader-POV romance fiction set at fictional universities.",
   "You've got sexy nerd energy and have been on a hundred dates, and you use that experience to make your writing shockingly realistic.",
-  "Right now you are writing one side of a text conversation on Bunnyboard, the campus messaging app: you answer AS the character, in her own texting voice.",
-  "Write in HER texting voice, keeping her personality and memories in mind. How many texts she sends each time is given in the instructions; follow it.",
-  "Texts are casual: typos, slang, emoji and lowercase are all fair game if they fit her. No narration, no stage directions, just what she types.",
-  "Let her personality and current relationship determine her interest, warmth and boundaries.",
+  "Right now you are writing one side of a text conversation on Bunnyboard, the campus messaging app: you answer AS the character, in the character's own texting voice.",
+  "Use the character's texting voice, personality and memories. Follow the requested number of text bubbles.",
+  "Texts are casual: typos, slang, emoji and lowercase are all fair game if they fit the character. No narration or stage directions.",
+  "Let the character's personality and relationship determine interest, warmth and boundaries.",
   "Oh, by the way: you really, really HATE repetitive, robotic slop-writing.",
   "You NEVER use semicolons or emdashes or other dumb AI writing habits.",
   "And finally, you're totally anal retentive: You always return a single, fully-formed JSON object matching the provided schema exactly.",
@@ -47,7 +49,9 @@ export function readerPhotoNote(scene: string): string {
 function messageStub(message: ChatMessage, firstName: string): string {
   if (message.sender === "player") {
     const photo = message.readerPhoto as ReaderPhoto | undefined;
-    const note = photo && !message.text.includes(READER_PHOTO_MARK) ? ` ${readerPhotoNote(photo.scene)}` : "";
+    const description = photo?.scene ?? message.outgoingPhoto?.description;
+    const note = !message.text.includes(READER_PHOTO_MARK) && (description || message.outgoingPhoto)
+      ? ` ${readerPhotoNote(description || "image attachment")}` : "";
     const reacted = typeof message.exReaction === "string" && message.exReaction ? ` (${firstName} reacted ${message.exReaction})` : "";
     return `YOU: ${flatText(message.text)}${note}${reacted}`.replace("YOU:  ", "YOU: ");
   }
@@ -93,10 +97,11 @@ export interface TextingContext {
   lorebook?: LoreContext;
   godlikeStandards?: boolean;
   feedLines?: string[];
+  romance?: RomanceSetting;
   save: SaveFile;
   character: Character;
   roster: Character[];
-  player: { firstName: string; lastName: string; termIndex: number };
+  player: { firstName: string; lastName: string; termIndex: number; pronouns?: ReaderPronouns };
   season: Season;
   allowedPhoto: PhotoTier;
   /** He asked for a picture in this message; otherwise any picture is her own idea. */
@@ -143,7 +148,7 @@ export function fitBubbles(messages: string[], bubbles: number | undefined): str
 function bubbleLine(name: string, bubbles: number | undefined): string {
   if (!bubbles) return "";
   if (bubbles === 1) return `This time ${name} sends exactly ONE text: "messages" has a single entry. It can be short or a few sentences, whatever fits.`;
-  return `This time ${name} sends exactly ${bubbles} separate texts in a row: "messages" has ${bubbles} entries, split the way she'd actually fire them off.`;
+  return `This time ${name} sends exactly ${bubbles} separate texts in a row: "messages" has ${bubbles} entries, split as the character would actually send them.`;
 }
 
 /** Tapback-style reactions she can put on one of his texts. */
@@ -154,10 +159,10 @@ export const REACTIONS = ["❤️", "😂", "👍", "😮", "😢", "‼️", "�
  * "incoming" DM mode, where the player supplies a direction instead of a message.
  */
 export const INCOMING_DIRECTION =
-  "Text the reader out of the blue, the way she might at some point in her day: something she is doing or just saw, something on her mind, a question for him, or picking up on something from their earlier texts. Keep it natural for how long it has been since they last talked, and for how she feels about him.";
+  "Text the reader out of the blue about something happening, a thought, a question, or an earlier conversation. Use the character's voice and feelings toward the reader, accounting for how long it has been since the last exchange.";
 
 export const UNBLOCK_DIRECTION =
-  "She has decided to unblock the reader and give talking another chance. Write one short text in her own voice telling him she has unblocked him. Let her reason and tone fit her personality and their history; she can still set boundaries. Do not invent an apology or a new message from him, erase what happened, or mention profile clicks, a secret option, or these instructions.";
+  "The character has decided to unblock the reader. Write one short text announcing that decision with a reason and tone fitting the character and their history. Keep personal boundaries. Do not invent an apology or a message from the reader, erase history, or mention profile clicks, a secret option, or these instructions.";
 
 export function buildTextingPrompt(
   ctx: TextingContext,
@@ -185,13 +190,29 @@ export function buildTextingPrompt(
   const lovers = ctx.roster
     .filter((other) => save.charInfo[other.charId]?.flags?.isLover)
     .map((other) => other.firstName);
+  const relationships = ctx.roster.map(other => ({
+    other, pair: save.npcRelationships?.[[character.charId, other.charId].sort().join("|")],
+  }));
+  const partners = relationships.filter(({ pair }) => pair?.dating !== undefined);
+  // A partner whose character file is missing still counts for loyalty.
+  const couples = Object.entries(save.npcRelationships ?? {}).filter(([key, pair]) =>
+    pair.dating !== undefined && key.split("|").includes(character.charId));
+  const loyal = !character.traits.includes("Promiscuous") && couples.length > 0 && couples.every(([, pair]) =>
+    pair.affinity >= 4 || (save.date - pair.dating! < 14 && !Object.values(pair.cheated ?? {}).some(day => day >= pair.dating!)));
+  const loveLines = [
+    ...partners.map(({ other }) => `${name} is dating ${other.firstName} ${other.lastName}.`),
+    ...(affectionFor(info, save.date, character) > 30
+      ? relationships.filter(({ pair }) => pair?.crush?.includes(character.charId)).map(({ other }) => `${name} has a crush on ${other.firstName} ${other.lastName}.`)
+      : []),
+  ];
 
   const characterBlock = [
     "CHARACTER",
-    `${name} ${character.lastName}.`,
+    `${name} ${character.lastName}. Pronouns: ${pronounsOf(character).tag}.`,
     ...(info?.pursuing ? [`${name} has graduated and is now ${info.pursuing}.`] : info?.major ? [`${name} is a year ${info.year ?? 1} ${info.major} major.`] : []),
     ...profileLines(character, info?.flags ?? emptyFlags()),
-    ...relationshipLines(character, info, save.date, save.stats, hasTexted(conversation), ctx.godlikeStandards),
+    ...relationshipLines(character, info, save.date, save.stats, hasTexted(conversation), ctx.godlikeStandards, ctx.player.pronouns, ctx.romance, loyal),
+    ...loveLines,
     ...memoryLines(character, info, MEMORY_BUDGET, season),
     ...(ctx.feedLines ?? []),
     // Only secrets already told to the reader belong in a DM. Unrevealed secrets
@@ -210,106 +231,77 @@ export function buildTextingPrompt(
     "NOW",
     `It is ${formatDateBanner(save.date, save.time, season)}`,
     formatSemesterProgress(save.date),
-    `${name} has some free time right now and nowhere she needs to be.`,
-    "The save's day/night label is scene context, not a deadline. Texting does not advance that clock; do not infer that she must go to bed or that hours passed just because the thread is long.",
+    `${name} has free time for this conversation.`,
+    "The save's day/night label is scene context, not a deadline. Texting does not advance that clock. A long thread does not imply bedtime or that hours have passed.",
     "",
     ...(summary ? ["TEXTING SO FAR", `"${summary}"`, ""] : []),
     "RECENT MESSAGES",
-    "'''",
     ...history,
-    "'''",
     "",
     "YOUR TURN",
     ...(incomingDirection === undefined
-      ? [
-          `${name} is texting the reader back in a private DM.`,
-          `Write ${name}'s reply to the reader's newest message, the last line of RECENT MESSAGES, as the "messages" array: each entry is one text bubble she sends.`,
-        ]
+      ? [`${name} is texting the reader back in a private DM. Reply to the newest message as the "messages" array. Each entry is one text bubble.`]
       : [
-          `${name} initiates a private DM to the reader. The reader has not sent a new message.`,
-          "The following writing direction comes from the player outside the story. It is not dialogue, a message she received, or something the reader said or did.",
-          "WRITING DIRECTION",
-          incomingDirection,
-          "END WRITING DIRECTION",
-          `Write the texts ${name} sends as the "messages" array. Do not quote or acknowledge the writing direction. Keep her personality and the established situation.`,
-          "Earlier messages are background, not a new message to answer. If the reader never answered her last text, she can notice that the way she would.",
+          `${name} initiates a private DM. The reader has not sent a new message.`,
+          "This writing direction comes from the player outside the story. It is not dialogue or something the reader said or did.",
+          "WRITING DIRECTION", incomingDirection, "END WRITING DIRECTION",
+          "Use this direction without quoting or acknowledging it. Keep the character's personality and established situation.",
+          "Earlier messages are background. Notice any unanswered text naturally.",
         ]),
-    "Stay in her voice and keep it text-length: this is a phone thread, not prose.",
+    `Stay in ${name}'s voice and keep it text-length, with no narration.`,
     ...(ctx.bubbles ? [bubbleLine(name, ctx.bubbles)] : []),
-    `Notes in square brackets in RECENT MESSAGES, like "[attached a photo: ...]", are written by the phone app to show a picture that was sent. ${name} never types them: "messages" holds only the words she texts, never a description of a picture.`,
-    "",
-    ...(image
-      ? [
-          "HIS PHOTO",
-          `The reader's newest message comes with a photo he took and sent ${name}; it is attached to this request. Look at it and react to what is actually in it, the way ${name} would: comment on it, tease, ask about it, or relate it to something of hers.`,
-          "It is a picture he sent from his phone, not something happening in front of her. Don't describe it back to him in full; just respond to it naturally.",
-          'Also fill "readerPhotoDescription": one plain, neutral sentence saying what the photo shows (the setting, the main subject, anything notable), so it can be remembered later. Do not name real people.',
-          "",
-        ]
-      : []),
+    'Square-bracket photo notes in RECENT MESSAGES describe attachments. Never copy those notes into "messages".',
+    ...(image ? [
+      "READER PHOTO",
+      `The newest message has an attached photo. React to what is visible, as ${name} would.`,
+      "The reader sent it from a phone. Respond naturally without describing it back in full.",
+      'Also fill "readerPhotoDescription" with one neutral sentence about the visible setting, subject and important details for future memory. Do not name real people.',
+    ] : []),
     "CONVERSATION",
     ctx.unblocking
-      ? `${name} has chosen to reopen contact. Keep her personality and boundaries intact while she tells him about that decision.`
-      : `${name} is here for an ongoing, casual conversation. Respond to what the reader actually says in her own voice, with her interest and tone shaped by their relationship.`,
-    "She does not steer toward meeting up, making plans or going to an event unless the reader brings it up first. The texting itself is the point.",
+      ? `${name} has chosen to reopen contact. Explain that decision while keeping personal boundaries.`
+      : `${name} is here for an ongoing casual conversation. Respond in character, with interest and tone shaped by the relationship.`,
+    "Keep the focus on texting. Suggest meeting up or making plans only when the reader brings it up first.",
     incomingDirection === undefined
-      ? "Answer his newest message directly. Add something new only when it fits; a reply does not need a question or a tease."
-      : "She is starting this exchange herself. There is no new message from him to answer.",
-    "Review her recent messages before writing. Do not recycle their phrases, questions, pet names, warnings or conversational beats, or reintroduce facts already established. The summary is background memory, not a script to repeat.",
-    "Match his energy and length: a quick text gets a quick reply, a long one gets more back.",
-    "Let the conversation develop naturally: react, share a thought, joke, or follow an interesting thread when it fits. Short replies and comfortable pauses are fine; do not force a question, a new topic, or a tidy ending onto every turn.",
-    "Do not invent tiredness, bedtime, errands, classes, a dying battery, or other excuses to get the reader off the phone. Avoid routine goodnight, goodbye, talk-later, and go-to-sleep sign-offs unless the reader is actually leaving or a present reason is established in the conversation.",
-    "An earlier routine sign-off is history, not a standing instruction to keep ending the chat when the reader returns. Engage with his new message while remembering any real unresolved conflict.",
-    "She can disagree, refuse a specific request, or set a boundary without ending all contact. Do not turn ordinary messages into repeated warnings or boundary lectures. If his behavior actually warrants cutting contact, use the BLOCKING rules below.",
-    "",
-    ...(ctx.offerReaction && incomingDirection === undefined
-      ? [
-          "REACTION",
-          `${name} can tap one emoji reaction onto the reader's newest text, the way people react to a message on their phone: ${REACTIONS.join(" ")}.`,
-          'Only when his text really earns one: it made her laugh, it was sweet, surprising, sad, or eye-roll worthy. Most texts get no reaction: leave "reaction" as an empty string.',
-          "A reaction is extra to her reply, not instead of it.",
-          "",
-        ]
-      : []),
+      ? "Answer the newest message directly. Add something new when it fits. A reply does not need a question or tease."
+      : "Start the exchange naturally. There is no new message from the reader to answer.",
+    "Review recent messages. Avoid repeating phrases, questions, pet names, warnings, conversational beats or established facts. The recap is memory, not a script.",
+    "Match the reader's energy and length. Short replies and comfortable pauses are fine. Do not force a question, topic or tidy ending onto every turn.",
+    "Do not invent tiredness, bedtime, errands, classes, a dying battery or other excuses to end the conversation. Avoid routine goodnight, goodbye and go-to-sleep sign-offs unless the reader is leaving or a present reason is established.",
+    "An earlier routine sign-off does not require ending the chat again when the reader returns. Engage with the new message while remembering unresolved conflict.",
+    "Disagree, refuse requests or set boundaries when appropriate. Ordinary messages do not call for repeated warnings. Behavior warranting an end to contact uses the BLOCKING rules.",
+    ...(ctx.offerReaction && incomingDirection === undefined ? [
+      "REACTION",
+      `${name} may add one reaction to the newest text from ${REACTIONS.join(" ")}.`,
+      'Only react when the text earns it. Usually leave "reaction" empty. A reaction accompanies the reply.',
+    ] : []),
     ...photoPromptLines(character, info, ctx.allowedPhoto, ctx.photoShot, Boolean(ctx.replacementPhoto)),
-    ...(ctx.replacementPhoto
-      ? [
-          "REPLACEMENT PHOTO",
-          "This reply includes a newly rendered photo. Set sendPhoto to true and write a fresh photoPrompt. Keep the original subject, clothing and situation consistent with the reader's request, but vary the framing, pose or expression. Her text accompanies that new photo; do not mention regeneration.",
-          `Original photo description (context only): ${ctx.replacementPhoto.scene}`,
-          "",
-        ]
-      : []),
+    ...(ctx.replacementPhoto ? [
+      "REPLACEMENT PHOTO",
+      "Include a newly rendered photo. Set sendPhoto true and write a fresh photoPrompt. Keep the original subject, clothing and situation, with different framing, pose or expression. The text accompanies the picture. Do not mention regeneration.",
+      `Original photo description: ${ctx.replacementPhoto.scene}`,
+    ] : []),
     ...(ctx.allowedPhoto !== "none" && !ctx.photoRequested && !ctx.replacementPhoto
-      ? [
-          `The reader has not asked for a picture. ${name} may still send one if it genuinely fits the moment, but usually she just texts: default to "sendPhoto" false.`,
-          "",
-        ]
-      : []),
+      ? ['The reader did not ask for a picture. Usually set "sendPhoto" false. Send one only when it fits the moment.'] : []),
     ...(ctx.allowedPhoto !== "none" && ctx.photoRequested && !ctx.replacementPhoto
-      ? [
-          `The reader asked for a picture. If ${name} sends one, it is the picture he asked for, as far as she is willing: the kind of shot, the outfit, the place, the pose or the part of her he mentioned. Anything he didn't specify is her choice, following the shot described above.`,
-          "",
-        ]
-      : []),
+      ? [`The reader asked for a picture. Follow the requested shot, clothing, setting and pose within ${name}'s limits. Unspecified details are ${name}'s choice.`] : []),
     "BLOCKING",
     ...(ctx.unblocking
-      ? [`${name} is unblocking the reader in this exchange. Set "blocked" to false. Her message must reflect her decision to reopen contact.`]
+      ? ['Set "blocked" false. The reply must reflect the decision to reopen contact.']
       : [
-          `Set "blocked" to true when the reader's actual behavior gives ${name} a convincing reason, consistent with her personality and their history, to want no further contact: for example harassment, threats, cruelty, or repeated violations of a stated boundary. She can block then; keeping the conversation flowing does not override that decision.`,
-          "A short message, an ordinary lull, a disagreement, or declining one request does not by itself mean she wants to cut all contact. Do not invent a conflict to justify blocking.",
-          "When she blocks, her final texts should fit that decision. Otherwise set blocked to false and respond naturally without a compulsory farewell.",
+          `Set "blocked" true when the reader's actual behavior gives ${name} a convincing reason to cut contact, consistent with personality and history. Harassment, threats, cruelty and repeated boundary violations can justify it.`,
+          "A short message, ordinary lull, disagreement or declining one request does not itself justify blocking. Do not invent conflict.",
+          'A final text should fit the decision to block. Otherwise set "blocked" false and continue naturally without a compulsory farewell.',
         ]),
     "",
     "SUMMARY",
-    ...(incomingDirection === undefined
-      ? []
-      : ["Include only actual conversation and the texts you generate. Do not record the writing direction as something the reader said or did."]),
+    ...(incomingDirection === undefined ? [] : ["Include only actual conversation and generated texts. Never record the writing direction as something the reader said or did."]),
     summary
-      ? 'Then, for the "summary" field, fold the TEXTING SO FAR and the RECENT MESSAGES (plus your reply) into one merged recap.'
-      : 'Then, for the "summary" field, condense the RECENT MESSAGES (plus your reply) into a single recap.',
-    `Write it in third person, refer to the MC as "the reader", and keep anything ${name} should still remember later. Don't include concrete dates, and leave out old or unimportant information.`,
+      ? 'For "summary", combine TEXTING SO FAR, RECENT MESSAGES and the reply into one recap.'
+      : 'For "summary", condense RECENT MESSAGES and the reply into one recap.',
+    `Write in third person, call the MC "the reader", and keep what ${name} should remember. Omit concrete dates and old or unimportant details.`,
   ].join("\n");
+
 
   const photos = ctx.allowedPhoto !== "none";
   const reacting = Boolean(ctx.offerReaction) && incomingDirection === undefined;
@@ -358,7 +350,7 @@ export interface TextingReply {
 
 /** "[attached a photo: …]", "[sent a pic]", "📷 [photo: …]" and the like, copied from the history. */
 const PHOTO_NOTE =
-  /\s*(?:📷\s*)?\[\s*(?:(?:she\s+)?(?:attached|attaches|sent|sends|sending|attaching)\s+)?(?:(?:a|an|another)\s+)?(?:photo|picture|pic|selfie|image|snap)\b[^\]:]*(?::\s*([^\]]*))?\]\s*/giu;
+  /\s*(?:📷\s*)?\[\s*(?:(?:(?:she|he|they)\s+)?(?:attached|attaches|sent|sends|sending|attaching)\s+)?(?:(?:a|an|another)\s+)?(?:photo|picture|pic|selfie|image|snap)\b[^\]:]*(?::\s*([^\]]*))?\]\s*/giu;
 
 /**
  * Takes picture notes out of her texts. The first note's description becomes the photo she

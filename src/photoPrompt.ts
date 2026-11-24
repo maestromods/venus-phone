@@ -9,6 +9,8 @@
 // her not to name places) and the optional "body details" mod, which is off by default there.
 
 import type { Character } from "./game/types.js";
+import { genderOf, genderedTags, photoRuleText } from "./game/gender.js";
+import { maleTopBare } from "./texting/photos.js";
 
 type Tier = "everyday" | "suggestive" | "explicit";
 
@@ -53,7 +55,7 @@ const REAR_CUES = ["spreading her ass", "spreading her cheeks", "holding her che
 const FRAMED_SEEN: Record<string, Region[]> = { face: [], waist: ["bust", "nipples"], lower: ["pubic", "hipsThighs", "buttocks"] };
 
 function seenIn(caption: string, framing: string | null): Set<Region> {
-  const text = caption.toLowerCase();
+  const text = photoRuleText(caption);
   const close = framing ? FRAMED_SEEN[framing] : undefined;
   const row = FRAMING_SEEN.find((rule) => saysAny(text, rule.cues));
   const seen = new Set<Region>(close ?? row?.seen ?? SEEN_BY_DEFAULT);
@@ -92,7 +94,7 @@ const BARE_CUES = [
 ];
 
 function coverageIn(caption: string, bare: boolean): Record<Region, "exposed" | "shape" | "hidden"> {
-  const text = caption.toLowerCase();
+  const text = photoRuleText(caption);
   const coverage = Object.fromEntries(REGIONS.map((r) => [r, "exposed"])) as Record<Region, "exposed" | "shape" | "hidden">;
   if (bare && saysAny(text, BARE_CUES)) return coverage;
   for (const [word, regions] of Object.entries(SHAPES)) {
@@ -128,7 +130,7 @@ function bodyTagsFor(caption: string, bare: boolean, framing: string | null): st
 }
 
 const describesNothingOn = (caption: string) =>
-  saysAny(caption.toLowerCase(), ["naked", "nude", "no clothes", "undressed", "without clothes", "wearing nothing", "nothing on"]);
+  saysAny(photoRuleText(caption), ["naked", "nude", "no clothes", "undressed", "without clothes", "wearing nothing", "nothing on"]);
 
 // ---- Framing and pose ---------------------------------------------------------------------------
 
@@ -143,7 +145,7 @@ const FRAMINGS = [
   { framing: "full", cues: ["full body", "full-body", "head to toe", "whole body", "full length", "full-length", "whole outfit", "full shot"], tags: ["full_body"] },
 ];
 function framingOf(caption: string) {
-  const text = caption.toLowerCase();
+  const text = photoRuleText(caption);
   if (saysAny(text, LOWER_CROP)) return "lower";
   if (saysAny(text, MEDIUM_CLOSE_UP) || (saysAny(text, CLOSE_UP) && says(text, "selfie"))) return "waist";
   return FRAMINGS.find(row => saysAny(text, row.cues))?.framing ?? null;
@@ -281,7 +283,7 @@ function onePlacement(tags: string[]): string[] {
 }
 
 function poseTagsOf(caption: string, bare: boolean): string[] {
-  const text = caption.toLowerCase();
+  const text = photoRuleText(caption);
   const tags: string[] = [];
   const dressed = firstMatch(text, DRESSED_POSITIONS);
   const facing = firstMatch(text, FACING);
@@ -380,7 +382,7 @@ const CROSS_LEGGED_CUES = ["cross-legged", "cross legged", "criss-cross", "legs 
 const CROSSED_CUES = ["legs crossed", "crossed legs", "crosses her legs", "crossing her legs", "legs tightly crossed", "thighs pressed together", "knees together"];
 
 function photoPose(caption: string, bare: boolean): { tags: string[]; negative: string[] } {
-  const text = caption.toLowerCase();
+  const text = photoRuleText(caption);
   let tags = poseTagsOf(caption, bare);
   if (saysAny(text, CANDID_CUES)) tags = uniq([...tags.filter((tag) => tag !== "looking_at_viewer"), "looking_away"]);
   if (saysAny(text, CROSS_LEGGED_CUES)) tags = uniq([...tags, "indian_style"]);
@@ -398,7 +400,7 @@ function photoPose(caption: string, bare: boolean): { tags: string[]; negative: 
 const HOLDS_CAMERA = /\b(?:camera|phone|cellphone|smartphone)\b/;
 const HOLDING_IT = /\b(?:hold\w*|rais\w*|angl\w*|aim\w*|lift\w*|tilt\w*|grip\w*|clutch\w*|extend\w*)\b/;
 function withoutCameraHold(scene: string): string {
-  const text = scene.toLowerCase();
+  const text = photoRuleText(scene);
   if (!says(text, "selfie") || says(text, "mirror") || saysAny(text, CAMERA_CUES)) return scene;
   return scene
     .split(/,|;|\s+while\s+|\s+as\s+/)
@@ -407,7 +409,7 @@ function withoutCameraHold(scene: string): string {
     .join(", ");
 }
 function withoutHeldObject(scene: string): string {
-  if (!says(scene.toLowerCase(), "mirror")) return scene;
+  if (!says(photoRuleText(scene), "mirror")) return scene;
   const verb = "(?:holding|clutching|carrying|cradling|sipping|drinking)";
   const hand = "in\\s+(?:her\\s+|one\\s+|her\\s+free\\s+|her\\s+other\\s+)?hand";
   const held = new RegExp(`\\s*,?\\s*\\b(?:with|${verb})\\s+(?:a|an|her|the|some|one)?\\s*[^,.;]*?\\b${hand}\\b`, "gi");
@@ -479,7 +481,7 @@ const CLOTHING_WORDS = [
   "bikini", "swimsuit", "swimwear", "one-piece", "lingerie", "negligee", "corset", "panties", "underwear", "thong", "g-string", "leggings",
   "stockings", "robe", "bathrobe", "kimono", "yukata", "apron", "costume",
 ];
-const describesClothing = (caption: string) => saysAny(caption.toLowerCase().replace(/\btop of\b/g, ""), CLOTHING_WORDS);
+const describesClothing = (caption: string) => saysAny(photoRuleText(caption).replace(/\btop of\b/g, ""), CLOTHING_WORDS);
 
 const SWIM_GARMENTS = ["swimsuit", "swimwear", "bikini", "one-piece", "bathing suit"];
 const PE_GARMENTS = ["pe kit", "pe uniform", "pe clothes", "gym clothes", "gym kit", "sportswear", "tracksuit"];
@@ -489,7 +491,7 @@ const PE_PLACES = ["pe", "gym", "workout", "working out", "running", "jogging", 
 
 /** One of her own outfit sets, or null where the caption dresses her in something else. */
 function photoWardrobe(character: Character, caption: string, captionDressesHer: boolean, swimwearAllowed: boolean): string[] | null {
-  const text = caption.toLowerCase();
+  const text = photoRuleText(caption);
   for (const set of Object.values(character.customOutfits ?? {})) {
     const name = set?.name?.trim().toLowerCase();
     if (name && set && saysAny(text, [name])) return set.tags.filter((tag) => typeof tag === "string");
@@ -532,7 +534,7 @@ const DISPLACEMENTS = [
 ];
 const MOVED = "(?:pulled (?:to the side|aside|down|up|off)|bunched|hiked up|hitched up|lifted|pushed (?:up|aside|down)|moved aside|tugged (?:aside|down))";
 function displacedTags(scene: string): string[] {
-  const text = scene.toLowerCase();
+  const text = photoRuleText(scene);
   const tags = DISPLACEMENTS.filter(({ garments }) =>
     garments.some((garment) => new RegExp(`\\b${garment}\\b(?:\\s+[a-z'-]+){0,2}?\\s+${MOVED}`).test(text)),
   ).map(({ tag }) => tag);
@@ -543,7 +545,6 @@ function displacedTags(scene: string): string[] {
 // ---- The prompt ---------------------------------------------------------------------------------
 
 const PHOTO_QUALITY = "masterpiece, best_quality, very_aesthetic";
-const PHOTO_BASE = "1girl, solo, depth_of_field";
 const PHOTO_NEGATIVE =
   "worst_quality, bad_quality, lowres, simple_background, white_background, transparent_background, multiple_views, reference_sheet, english_text, speech_bubble, artist_name, watermark, signature, 1boy, multiple_boys, multiple_girls, 2girls, hetero, penis, sex, gold, photo_(medium), cum, bad_hands, extra_digits, fewer_digits";
 const BARE_POSITIVE = "uncensored";
@@ -567,19 +568,25 @@ const EVERYDAY_DROPS = new Set(["undressing", "clothes_pull"]);
 const AGE_GUARD = ["loli", "child", "aged_down"];
 
 export function buildPhotoPrompt(character: Character, tier: Tier, caption: string): { positive: string; negative: string } {
+  const gender = genderOf(character);
   const scene = shopNotDrink(drinkNotLiquid(plainColours(withoutNames(character, caption.trim()))));
   const bare = tier === "explicit";
+  const upperBare = gender === "male" && maleTopBare(scene);
   const dressed = describesClothing(scene);
   const pose = photoPose(scene, bare);
+  pose.tags = genderedTags(pose.tags, gender);
   if (tier === "everyday") pose.tags = pose.tags.filter((tag) => !EVERYDAY_DROPS.has(tag));
-  const body = bodyTagsFor(scene, bare, framingInTags(pose.tags));
-  const wardrobe = bare
+  const body = genderedTags(bodyTagsFor(scene, bare, framingInTags(pose.tags)), gender);
+  let wardrobe = bare
     ? dressed && !describesNothingOn(scene)
       ? ["partially_undressed", ...displacedTags(scene), BARE_POSITIVE].join(", ")
       : `nude, completely_nude, ${BARE_POSITIVE}`
     : plainColours((photoWardrobe(character, scene, dressed, tier !== "everyday") ?? []).join(", "));
-  const appearance = character.baseAppearance ?? [];
-  const base = appearance.includes("1girl") ? PHOTO_BASE.replace("1girl, ", "") : PHOTO_BASE;
+  if (upperBare && !bare) {
+    wardrobe = wardrobe.split(", ").filter(tag => !/(?:shirt|jacket|coat|vest|sweater|hoodie|blouse|cardigan|tank_top|suit|tie)/.test(tag)).join(", ");
+  }
+  const appearance = genderedTags(character.baseAppearance ?? [], gender);
+  const base = gender === "male" ? "1boy, male_focus, mature_male, solo, depth_of_field" : "1girl, mature_female, solo, depth_of_field";
   const worn = `${appearance.join(" ")} ${wardrobe} ${scene}`.toLowerCase().replace(/_/g, " ");
   const legs = legwear(worn);
   const sentence = lookingAtViewer(withoutHeldObject(withoutCameraHold(withoutWhoTookIt(scene)))).replace(/[.!?]+$/, "");
@@ -597,15 +604,18 @@ export function buildPhotoPrompt(character: Character, tier: Tier, caption: stri
   const dressedNegative = bare
     ? []
     : [
-        ...DRESSED_NEGATIVE.filter(([, said]) => !said.test(worn)).map(([tag]) => tag),
+        ...DRESSED_NEGATIVE.filter(([tag, said]) => !(upperBare && tag === "nipples") && !said.test(worn)).map(([tag]) => tag),
         ...(tier === "everyday" && !SHOWS_CLEAVAGE.test(worn) ? ["cleavage", "downblouse"] : []),
       ];
   const negative = [
-    PHOTO_NEGATIVE,
+    gender === "male"
+      ? PHOTO_NEGATIVE.replace(/\b1boy, |\bpenis, /g, "") + ", 1girl, breasts, pussy, vagina"
+      : PHOTO_NEGATIVE,
+    ...(gender === "male" && !bare ? ["penis", "testicles"] : []),
     ...(bare ? [BARE_NEGATIVE] : []),
     ...dressedNegative,
     ...legs.negative,
-    ...SPILL_NEGATIVE.filter(([, said]) => !said.test(scene.toLowerCase())).map(([tag]) => tag),
+    ...SPILL_NEGATIVE.filter(([, said]) => !said.test(photoRuleText(scene))).map(([tag]) => tag),
     ...pose.negative,
     ...AGE_GUARD,
     ...(character.negativeTags ?? []),

@@ -70,7 +70,7 @@
       </div>
       <p id="sync-status" class="status" role="status" aria-live="polite"></p>
       <ul id="contact-list" class="list contacts" aria-label="Contacts"></ul>
-      <p id="contacts-empty" class="hint" hidden>Nobody in this save has given you her number yet.</p>
+      <p id="contacts-empty" class="hint" hidden>Nobody in this save has given you their number yet.</p>
     </section>
 
     <!-- Thread -->
@@ -300,14 +300,14 @@
             <p class="muted">Use a voice sample you have permission to use. Voice choices are remembered for each contact on this device.</p>
           </div></details>
         </div>
-        <div class="call-setting stack"><label for="voice-mode">Your side of the call</label><select id="voice-mode"><option value="type">Type to talk — she replies aloud</option><option value="microphone">Microphone — pause to send</option></select>
+        <div class="call-setting stack"><label for="voice-mode">Your side of the call</label><select id="voice-mode"><option value="type">Type to talk — hear replies aloud</option><option value="microphone">Microphone — pause to send</option></select>
           <details><summary>Microphone settings</summary><div class="stack voice-details">
-            <label class="call-check"><input id="voice-barge" type="checkbox"> Interrupt her when I speak (use headphones)</label>
+            <label class="call-check"><input id="voice-barge" type="checkbox"> Interrupt when I speak (use headphones)</label>
             <label for="voice-threshold">Microphone threshold</label><select id="voice-threshold"><option value="0.012">Sensitive</option><option value="0.025" selected>Normal</option><option value="0.05">Noisy room</option></select>
             <p class="muted">Microphone access requires localhost on the PC or trusted HTTPS on your phone.</p>
           </div></details>
         </div>
-        <p class="muted">Sending a typed reply interrupts her. Completed speech is saved in your chat. Calls reply in turns, so a short pause between replies is normal.</p>
+        <p class="muted">Sending a typed reply interrupts playback. Completed speech is saved in your chat. Calls reply in turns, so a short pause between replies is normal.</p>
       </div>
     </section>
     <section id="voice-history" class="call-sheet" aria-labelledby="voice-history-title" hidden>

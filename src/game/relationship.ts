@@ -4,8 +4,27 @@
 
 import { formatShortGameDate, readerYearPhrase, type Season } from "./calendar.js";
 import { emptyFlags, hasTrait, type Character, type CharInfo, type Flags, type Memory, type Stats, type StatKey } from "./types.js";
+import { genderOf, pronounsOf } from "./gender.js";
+import type { Attraction, ReaderPronouns, RomanceSetting } from "./types.js";
 
 const POINTS: Record<string, number> = { loved: 2, liked: 1, disliked: -1, hated: -2 };
+
+function attraction(value: unknown): Attraction | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { male, female } = value as Attraction;
+  return typeof male === "boolean" && typeof female === "boolean" && (male || female) ? { male, female } : undefined;
+}
+
+/** VE 0.9.2 uses the settled profile first and keeps established relationships eligible. */
+export function isRomanceable(character: Character, info: CharInfo | undefined, reader: ReaderPronouns, romance?: RomanceSetting): boolean {
+  const gender = genderOf(character);
+  const level = romance?.[gender] ?? "sexuality";
+  const held = attraction(info?.attractedTo) ?? attraction(character.attractedTo) ?? { male: gender === "female", female: gender === "male" };
+  if (level !== "none" && (reader === "they" || level === "all" || level === "everyone" || held[reader === "he" ? "male" : "female"])) return true;
+  const flags = info?.flags;
+  return flags?.hasKissed === true || flags?.hadSex === true || flags?.isLover === true ||
+    flags?.benefits === true || (flags?.brokenUp ?? 0) > 0 || info?.datingSince !== undefined;
+}
 
 function weightFor(daysAgo: number): number {
   if (daysAgo <= 7) return 4;
@@ -108,31 +127,36 @@ function missingCrushStatOf(character: Character, stats: Stats): StatKey | null 
   return STAT_KEYS.find((key) => key !== preferred && tierOf(stats[key]) < OTHER_TIER) ?? null;
 }
 
-function statusLine(name: string, flags: Flags, affection: number, texted: boolean): string | null {
+function statusLine(character: Character, flags: Flags, affection: number, texted: boolean, romanceScenes?: number): string | null {
+  const name = character.firstName;
+  const p = pronounsOf(character);
   const disposition = dispositionOf(affection);
-  if (!flags.hasMet) {
-    return texted ? null : `${name} and the reader are speaking for the first time.`;
-  }
+  if (!flags.hasMet && !texted) return `${name} and the reader are speaking for the first time.`;
   if (flags.isLover) {
     if (disposition === "hostile") return `${name} is breaking up with the reader right now.`;
     if (disposition === "annoyed") return `${name} is thinking of breaking up with the reader.`;
     if (disposition === "neutral") return `${name} and the reader are lovers but their relationship is in danger.`;
+    if (romanceScenes !== undefined) return `${name} and the reader recently ${flags.brokenUp ? "got back together" : "became lovers"}.`;
+    if (!flags.hasKissed) return `${name} and the reader are lovers but haven't kissed yet.`;
+    if (!flags.hadSex) return `${name} and the reader are lovers but haven't slept together yet.`;
     return `${name} and the reader are lovers.`;
   }
   if (flags.benefits) {
     if (flags.hasCrush && flags.friendZoned) {
-      return `${name} and the reader are friends with benefits. She wants to be his girlfriend, but the reader has friendzoned her.`;
+      return `${name} and the reader are friends with benefits. ${p.They} wants to be the reader's ${p.partner}, but the reader has friendzoned ${p.them}.`;
     }
-    if (flags.hasCrush) return `${name} and the reader are friends with benefits, but she wants to make things official.`;
-    if (flags.friendZoned || flags.friendZonedBy) return `${name} and the reader are friends with benefits, and she's okay with that.`;
+    if (flags.hasCrush) return `${name} and the reader are friends with benefits, but ${p.they} wants to make things official.`;
+    if (flags.friendZoned || flags.friendZonedBy) return `${name} and the reader are friends with benefits, and ${p.they}'s okay with that.`;
     return affection <= -15
       ? `${name} and the reader have an enemies with benefits relationship.`
       : `${name} and the reader have a friends with benefits relationship.`;
   }
   if (flags.friendZonedBy) return `${name} has friendzoned the reader.`;
-  if (flags.friendZoned && flags.hasCrush) return `${name} has a crush on the reader, but the reader has friendzoned her.`;
+  if (flags.friendZoned && flags.hasCrush) return `${name} has a crush on the reader, but the reader has friendzoned ${p.them}.`;
   if (flags.friendZoned) return `The reader has friendzoned ${name}.`;
-  if (flags.hasCrush) return `${name} has a crush on the reader.`;
+  if (flags.hasCrush) return romanceScenes === 0
+    ? `${name} recently developed a crush on the reader and is trying to hide it.`
+    : `${name} has a crush on the reader.`;
   return null;
 }
 
@@ -164,13 +188,17 @@ export function relationshipLines(
   stats: Stats,
   texted: boolean,
   godlikeStandards = false,
+  readerPronouns: ReaderPronouns = "he",
+  romance?: RomanceSetting,
+  loyal = false,
 ): string[] {
   const name = character.firstName;
-  const flags = info?.flags ?? emptyFlags();
+  let flags = info?.flags ?? emptyFlags();
   const affection = affectionFor(info, today, character);
   const lines: string[] = [];
   if (godlikeStandards && hasTrait(character, "Godlike") && !flags.isLover && STAT_KEYS.some(key => stats[key] < 100)) {
-    lines.push(`${name} requires Godly Brain, Body and Heart (100 points each) before starting a romance. The reader has not met those requirements. She will not initiate or accept romantic or sexual advances; friendship can grow normally. Gifts, persuasion and abilities do not override these requirements.`);
+    lines.push(`${name} requires Godly Brain, Body and Heart (100 points each) before starting a romance. The reader has not met those requirements. ${name} will not initiate or accept romantic or sexual advances; friendship can grow normally. Gifts, persuasion and abilities do not override these requirements.`);
+    flags = { ...flags, hasCrush: false, benefits: false, harem: false };
   }
   const behavior = character.behavior[behaviorLevelOf(flags, affection)];
   if (behavior) lines.push(behavior);
@@ -186,16 +214,20 @@ export function relationshipLines(
   }
   if (!flags.isLover && !flags.hasCrush && !flags.benefits) {
     const missing = missingCrushStatOf(character, stats);
-    if (missing) {
+    if (!isRomanceable(character, info, readerPronouns, romance)) {
+      lines.push(`${name} doesn't feel any attraction towards the reader and never will. ${name} won't make or accept romantic advances.`);
+    } else if (loyal) {
+      lines.push(`${name} won't make or accept romantic advances from anyone else.`);
+    } else if (missing) {
       lines.push(
-        `${name} doesn't feel any attraction towards the reader ${flags.brokenUp > 0 ? "anymore" : "yet"}. He needs to be ${STAT_REQUIREMENT_PHRASES[missing]} first. ${name} won't make or accept romantic advances.`,
+        `${name} doesn't feel any attraction towards the reader ${flags.brokenUp > 0 ? "anymore" : "yet"}. The reader needs to be ${STAT_REQUIREMENT_PHRASES[missing]} first. ${name} won't make or accept romantic advances.`,
       );
     }
   }
-  const status = statusLine(name, flags, affection, texted);
+  const status = statusLine(character, flags, affection, texted, info?.romanceScenes);
   if (status) lines.push(status);
   if (flags.harem && (flags.isLover || flags.hasCrush || flags.benefits)) {
-    lines.push(`${name} is okay with the reader seeing other girls.`);
+    lines.push(`${name} is okay with the reader seeing other partners.`);
   }
   return lines;
 }
@@ -234,7 +266,7 @@ export function describePlayer(stats: Stats): string {
     if (points < -15) return CHALLENGE_PHRASES[key][points < -80 ? 0 : points < -60 ? 1 : points < -30 ? 2 : 3];
     return STAT_PHRASES[key][tierOf(points)] ?? "";
   });
-  return `The reader is ${phrases[0]}, he is ${phrases[1]}, and he is ${phrases[2]}.`;
+  return `The reader is ${phrases[0]}, ${phrases[1]}, and ${phrases[2]}.`;
 }
 
 export function readerText(opts: {
@@ -244,9 +276,12 @@ export function readerText(opts: {
   stats: Stats;
   bio?: string;
   lovers: string[];
+  pronouns?: ReaderPronouns;
 }): string {
+  const pronouns = opts.pronouns ?? "he";
+  const identity = pronouns === "he" ? "a male (he/him)" : pronouns === "she" ? "a female (she/her)" : "a person using they/them pronouns";
   const parts = [
-    `The reader is ${readerYearPhrase(opts.termIndex)} named ${opts.firstName} ${opts.lastName}, a male who has a single dorm in Lowrise 4.`,
+    `The reader is ${readerYearPhrase(opts.termIndex)} named ${opts.firstName} ${opts.lastName}, ${identity}, with a single dorm in Lowrise 4.`,
     describePlayer(opts.stats),
   ];
   if (opts.bio?.trim()) parts.push(sentence(opts.bio.trim()));

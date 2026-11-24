@@ -4,7 +4,7 @@
 // Source: https://github.com/naudh1r/venus-university/tree/photo-feature
 
 import { affectionFor, dispositionOf } from "../game/relationship.js";
-import { emptyFlags, hasTrait, type Character, type CharInfo, type Flags, type PhotoTier } from "../game/types.js";
+import { emptyFlags, hasTrait, type Character, type CharInfo, type Flags, type PhotoTier, type Gender } from "../game/types.js";
 
 const PHOTO_TIERS: PhotoTier[] = ["none", "everyday", "suggestive", "explicit"];
 const rankOf = (tier: PhotoTier) => PHOTO_TIERS.indexOf(tier);
@@ -76,29 +76,131 @@ function saysAny(text: string, words: string[]): boolean {
   });
 }
 
-function describedPhotoTier(caption: string): PhotoTier {
-  const text = caption.toLowerCase();
-  if (!text.trim()) return "none";
-  if (saysAny(text, EXPLICIT_WORDS)) return "explicit";
-  if (saysAny(text, SUGGESTIVE_WORDS)) return "suggestive";
-  return "everyday";
+// Caption classification follows VE v0.9.2 Photo 1.9.0.
+export function maleTopBare(caption: string): boolean {
+  const text = caption.toLowerCase()
+  return (
+    saysAny(text, [
+      'shirtless',
+      'topless',
+      'bare-chested',
+      'bare chested',
+      'bare chest',
+      'bare torso',
+      'bare front',
+      'chest bare',
+      'exposed chest',
+      'nude from the waist up',
+      'naked from the waist up',
+      'bare from the waist up',
+      'undressed from the waist up'
+    ]) ||
+    /\b(?:without (?:a |his )?shirt|shirt (?:off|removed)|nothing (?:on|covering) (?:his )?(?:chest|torso|upper body))\b/.test(
+      text
+    ) ||
+    (/\b(?:wearing only|wearing nothing but|dressed in only|clad only in)\b/.test(text) &&
+      saysAny(text, ['shorts', 'pants', 'jeans', 'trousers', 'boxers', 'briefs', 'swim trunks']))
+  )
 }
 
-function describesSomebodyElse(caption: string): boolean {
-  const text = caption.toLowerCase();
-  if (saysAny(text, NOT_SOLO_WORDS)) return true;
-  return saysAny(text, PARTNER_BODY_WORDS) && !saysAny(text, TOY_WORDS);
+export function describedPhotoTier(photoPrompt: string, gender: Gender = 'female'): PhotoTier {
+  const text = photoPrompt.toLowerCase()
+  if (!text.trim()) return 'none'
+  if (gender === 'male') {
+    // An uncovered upper body is ordinary; removing a lower garment still is not.
+    const upperOnly = [
+      'topless',
+      'bare-chested',
+      'bare chested',
+      'bare chest',
+      'bare torso',
+      'bare front',
+      'bare from the waist up',
+      'chest bare',
+      'exposed chest',
+      'shirtless',
+      'nipple',
+      'nothing covering'
+    ]
+    const onlyGarment = [
+      'wearing only',
+      'wearing nothing but',
+      'dressed in only',
+      'in only her',
+      'clad only in'
+    ]
+    const explicit = EXPLICIT_WORDS.filter(
+      (word) => !upperOnly.includes(word) && !onlyGarment.includes(word)
+    )
+    const bottomOff =
+      /\b(?:pulling|tugging|sliding|taking) (?:down|off) (?:his |her |the )?(?:pants|shorts|boxers|briefs|underwear)\b|\b(?:bottomless|no (?:bottoms|underwear|boxers|briefs|pants)|without (?:underwear|boxers|briefs|pants)|(?:pants|shorts|trousers|boxers|briefs|underwear).{0,30}(?:down|off|aside)|(?:naked|nude|bare) (?:from the waist down|below the waist)|nothing (?:on )?below)\b/
+    const onlyTop =
+      /\b(?:wearing only|wearing nothing but|dressed in only|clad only in|in only his)\b/.test(
+        text
+      ) &&
+      !saysAny(text, [
+        'shorts',
+        'pants',
+        'jeans',
+        'trousers',
+        'boxers',
+        'briefs',
+        'underwear',
+        'swim trunks',
+        'swimsuit',
+        'towel'
+      ])
+    const upper = text
+      .replace(/\bwearing nothing but\b/g, 'wearing only')
+      .replace(/\b(?:naked|nude|bare|undressed) (?:from the waist up|above the waist)\b/g, '')
+      .replace(/\bnothing (?:covering|on) (?:his )?(?:chest|torso|upper body)\b/g, '')
+    if (
+      saysAny(upper, explicit) ||
+      saysAny(text, ['penis', 'cock', 'dick', 'testicles', 'anus']) ||
+      bottomOff.test(text) ||
+      onlyTop
+    )
+      return 'explicit'
+  } else if (saysAny(text, EXPLICIT_WORDS)) return 'explicit'
+  if (saysAny(text, SUGGESTIVE_WORDS)) return 'suggestive'
+  return 'everyday'
+}
+
+export function describesSomebodyElse(
+  photoPrompt: string,
+  gender: Gender = 'female'
+): boolean {
+  const text = photoPrompt.toLowerCase()
+  const other =
+    gender === 'male' ? NOT_SOLO_WORDS.filter((word) => !word.startsWith('his ')) : NOT_SOLO_WORDS
+  if (
+    saysAny(text, [
+      ...other,
+      ...(gender === 'male' ? ['with her'] : []),
+      'another boy',
+      'other boy',
+      'two boys',
+      'girlfriend',
+      'kissing her',
+      'riding her'
+    ])
+  )
+    return true
+  return (
+    saysAny(text, gender === 'male' ? ['pussy', 'vagina', 'clitoris'] : PARTNER_BODY_WORDS) &&
+    !saysAny(text, TOY_WORDS)
+  )
 }
 
 export type PhotoVerdict = { send: true; tier: Exclude<PhotoTier, "none"> } | { send: false; note?: string };
 
 /** Whether the picture she described goes out, and at what tier. */
-export function settlePhoto(input: { sendPhoto: boolean; photoPrompt: string; stated?: PhotoTier; allowed: PhotoTier }): PhotoVerdict {
+export function settlePhoto(input: { sendPhoto: boolean; photoPrompt: string; stated?: PhotoTier; allowed: PhotoTier; gender?: Gender }): PhotoVerdict {
   const { sendPhoto, photoPrompt, allowed, stated } = input;
   if (!sendPhoto || !photoPrompt.trim()) return { send: false };
-  if (allowed === "none") return { send: false, note: "she sends him nothing" };
-  if (describesSomebodyElse(photoPrompt)) return { send: false, note: "the picture is not of her alone" };
-  const described = describedPhotoTier(photoPrompt);
+  if (allowed === "none") return { send: false, note: "photos are unavailable" };
+  if (describesSomebodyElse(photoPrompt, input.gender)) return { send: false, note: "the picture includes another person" };
+  const described = describedPhotoTier(photoPrompt, input.gender);
   const tier = stated && rankOf(stated) > rankOf(described) ? stated : described;
   if (tier === "none" || rankOf(tier) > rankOf(allowed)) {
     return { send: false, note: `read as ${tier}, allowed ${allowed}` };
@@ -120,23 +222,7 @@ function wardrobeLine(character: Character): string {
       return name && set && set.tags.length > 0 ? [`"${name}" — ${spoken(set.tags)}`] : [];
     }),
   ];
-  return `${character.firstName}'s clothes: ${sets.join("; ")}. If the picture has her in one of these, say which — "her everyday clothes", "her PE kit", "her swimsuit"${sets.length > 3 ? ", or the name of the set" : ""} — rather than describing it.`;
-}
-
-const INTIMATE_REASON: Record<Reason, string> = {
-  intimate: "She has already been that far with him, so nothing is being asked for the first time.",
-  promiscuous: "This is nothing new for her: she sends pictures like this to people she's into, and he has her number.",
-  crush:
-    "She's into him, but they haven't been together. Sending one is her own decision, and not a small one: she does it when she wants to, never because he pushed.",
-};
-
-function opening(name: string): string[] {
-  return [
-    "PHOTOS",
-    `${name} can attach one picture to this reply. Set "sendPhoto" and describe it in "photoPrompt".`,
-    'That is the only way a picture gets sent: writing "[attached a photo: ...]" or describing it in "messages" sends nothing.',
-  `If ${name}'s texts say she is sending, attaching or has just taken a picture, "sendPhoto" must be true with its "photoPrompt" in this same reply. If she isn't sending one now, her texts don't say she is.`,
-  ];
+  return `${character.firstName}'s clothes: ${sets.join("; ")}. Name the chosen outfit when using one of these sets.`;
 }
 
 // ---- Shot types -------------------------------------------------------------------------------
@@ -145,35 +231,9 @@ function opening(name: string): string[] {
 
 export type ShotType = "selfie" | "mirror" | "taken" | "timer" | "candid";
 
-const SHOTS: Array<{ shot: ShotType; weight: number; line: (name: string) => string }> = [
-  {
-    shot: "selfie",
-    weight: 2,
-    line: (name) => `If ${name} sends one this time, it is a regular selfie: she holds the phone out at arm's length. Say "selfie" in the caption.`,
-  },
-  {
-    shot: "mirror",
-    weight: 2,
-    line: (name) => `If ${name} sends one this time, it is a mirror selfie: she is photographing her reflection, phone in hand. Say "mirror selfie" in the caption.`,
-  },
-  {
-    shot: "taken",
-    weight: 3,
-    line: (name) =>
-      `If ${name} sends one this time, it is NOT a selfie: somebody else took it of her from a few steps away, so her whole outfit or most of her body is in frame. Say how much of her is in it ("full body", "from the knees up"), whether she is standing, sitting, leaning or lying, and her pose. Do not use the word selfie.`,
-  },
-  {
-    shot: "timer",
-    weight: 2,
-    line: (name) =>
-      `If ${name} sends one this time, it is NOT a selfie: she propped her phone up on a timer and posed for it, both hands free, a few feet back from the camera. Describe the pose and how much of her is in frame. Do not use the word selfie.`,
-  },
-  {
-    shot: "candid",
-    weight: 1,
-    line: (name) =>
-      `If ${name} sends one this time, it is NOT a selfie: a candid shot somebody snapped of her while she wasn't posing, caught mid-moment and looking away from the camera. Say "candid" and what she is doing. Do not use the word selfie.`,
-  },
+const SHOTS: Array<{ shot: ShotType; weight: number }> = [
+  { shot: "selfie", weight: 2 }, { shot: "mirror", weight: 2 },
+  { shot: "taken", weight: 3 }, { shot: "timer", weight: 2 }, { shot: "candid", weight: 1 },
 ];
 
 /** The kind of shot the reader's own text asks for, if it names one. */
@@ -215,54 +275,36 @@ export function captionForShot(caption: string, shot: ShotType): string {
     .trim();
 }
 
-function captioning(character: Character, shot: ShotType, replacement = false): string[] {
-  const name = character.firstName;
-  const shotLine = SHOTS.find((s) => s.shot === shot)?.line(name) ?? "";
-  return [
-    replacement
-      ? 'This is a replacement of a reply that already included a picture. Include a fresh picture with the replacement: set "sendPhoto" true and supply its "photoPrompt".'
-      : 'A picture is worth sending when the texts are already about one — she offers it, or he asked and she wants to. Most replies are just words: set "sendPhoto" false and leave "photoPrompt" empty.',
-    `Write "photoPrompt" as what the picture shows, the way ${name} would caption it to herself. One sentence, and a full one: where she is, what she is wearing, how she is sitting or lying or standing, what her hands are doing, how close the shot is, and where she is looking.`,
-    shotLine,
-    'What is not written is not drawn. A caption that says only "a photo of me" gets a picture of nobody in particular.',
-    wardrobeLine(character),
-    'Then set "photoTier" to what that picture is, which is a separate question from whether she would send it: "everyday" for one with nothing on show, "suggestive" for underwear, swimwear or a towel, "explicit" for one where any part of her usually covered is not. Judge the picture you described, not the words you described it in — a caption that never says a word for it can still be a picture of one. "none" where there is no picture.',
-  ];
-}
-
-function keeping(name: string): string[] {
-  return [
-    "Describe the picture itself: how she looks in it, not how it was taken or sent. A phone only appears in it when it's a mirror selfie.",
-    `${name} is the only person in the picture. Whoever took it stays behind the camera: nobody else is in it, touching her, or doing anything with her.`,
-    'Name nobody and nowhere: not herself, not the reader, not a building, a dorm or a place on the map. A picture cannot show a name. "her room", "a lecture hall", "the cafe" — what it looks like, never what it is called.',
-    "Her texts should read like somebody who just sent that picture. Do not describe it in them.",
-    "Any picture she has already sent is written into RECENT MESSAGES beside the text it came with. She knows what she sent him and would not send the same one twice.",
-    "",
-  ];
-}
-
-/** The PHOTOS block of a DM prompt; empty when she may not send one. */
 export function photoPromptLines(character: Character, info: CharInfo | undefined, allowed: PhotoTier, shot: ShotType = "taken", replacement = false): string[] {
   if (allowed === "none") return [];
   const name = character.firstName;
-  if (allowed === "explicit") {
-    const reason = photoReasonOf(info?.flags ?? emptyFlags(), character.traits) ?? "crush";
-    return [
-      ...opening(name),
-      `${name} will send anything of herself, undressed included. ${INTIMATE_REASON[reason]}`,
-      ...captioning(character, shot, replacement),
-      `So a picture of ${name} undressed is captioned as one, in plain words: what is bare, what she is doing, what the shot shows. Coy wording is a coy picture — "the top of a shirt" is a photograph of a shirt.`,
-      `Write it as she would, not as a catalogue: she is sending this to ${reason === "intimate" ? "somebody she has slept with" : "somebody she's into"}, and she knows what she is doing.`,
-      ...keeping(name),
-    ];
-  }
+  const reason = photoReasonOf(info?.flags ?? emptyFlags(), character.traits);
+  const framing: Record<ShotType, string> = {
+    selfie: 'A regular selfie at arm\'s length. Say "selfie" in the caption.',
+    mirror: 'A mirror selfie, with the phone visible in the reflection. Say "mirror selfie".',
+    taken: 'Somebody else took the picture from a few steps away. Describe framing, posture and pose. Do not use the word selfie.',
+    timer: 'A posed timer photo with both hands free, a few feet from the camera. Describe pose and framing. Do not use the word selfie.',
+    candid: 'A candid moment without posing, looking away from the camera. Say "candid" and describe the activity. Do not use the word selfie.',
+  };
   return [
-    ...opening(name),
-    allowed === "suggestive"
-      ? `${name} will send a flirty one — what she is wearing, a swimsuit, underwear — but nothing more than that. Nothing undressed.`
-      : `${name} only sends ordinary pictures: where she is, what she is eating, her outfit, something that made her laugh. Nothing flirty, nothing undressed.`,
-    ...captioning(character, shot, replacement),
-    ...keeping(name),
+    "PHOTOS",
+    `${name} can attach one picture using "sendPhoto" and "photoPrompt". Describing it in "messages" sends nothing.`,
+    replacement
+      ? 'The original reply had a picture. Set "sendPhoto" true and supply a fresh "photoPrompt" with its replacement.'
+      : 'Usually set "sendPhoto" false. Send a picture when the conversation calls for one and the character wants to. Text promising an attached picture must include it in the same reply.',
+    allowed === "explicit"
+      ? `${name} may send an undressed picture. ${reason === "intimate" ? "They have already been intimate." : "Sending one is a personal choice, never an obligation."}`
+      : allowed === "suggestive"
+        ? `${name} may send a flirty picture, swimwear or underwear, within the character's own boundaries.`
+        : `${name} sends ordinary pictures of an outfit, activity or setting, with nothing flirty.`,
+    `Write one complete sentence about ${name}'s appearance, clothing, setting, posture, hands, expression and framing. Use the character's pronouns.`,
+    framing[shot],
+    wardrobeLine(character),
+    'Set "photoTier" from the described picture. "everyday" for ordinary clothing, "suggestive" for underwear or swimwear, "explicit" for exposed intimate anatomy. A male bare upper body alone is everyday. Never exceed the permitted tier.',
+    `${name} is the only person in the frame. The photographer stays behind the camera.`,
+    "Describe the appearance of places and people without using their names. The camera or phone appears only in a mirror selfie.",
+    "Let the texts accompany the photo naturally. Do not describe the picture in the text bubbles, and do not repeat a picture already sent in RECENT MESSAGES.",
+    "",
   ];
 }
 
